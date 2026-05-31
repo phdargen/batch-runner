@@ -11,8 +11,9 @@ import {
   SPEED_INCREMENT,
   OBSTACLE_MIN_GAP,
   JUMP_COOLDOWN_MS,
-  GAS_LOCKOUT_DURATION_MS,
   BANK_PENALTY_JUMPS,
+  BANK_TOP_BOUNCE_VELOCITY,
+  BANK_TOP_LANDING_TOLERANCE,
   MAX_FALL_VELOCITY,
   GAP_FALL_MARGIN,
   HAZARD_GAP_BONUS,
@@ -32,12 +33,13 @@ export function createInitialState(): GameState {
     groundOffset: 0,
     frameCount: 0,
     jumpCooldownMs: 0,
-    jumpLockoutMs: 0,
+    topJumpLocked: false,
     bankPenaltyJumpsLeft: 0,
     screenShake: 0,
     lastObstacleDistance: 0,
     lastObstacleType: null,
-    forbidGapNextSpawn: false,
+    gapForbiddenSlots: 0,
+    bankForbiddenSlots: 0,
     runFrame: 0,
     runFrameTimer: 0,
     dinoReaction: "none",
@@ -57,7 +59,6 @@ function initClouds(): Cloud[] {
 
 export type EngineCallbacks = {
   onJumpCost: () => boolean | Promise<boolean>; // returns false if insufficient balance
-  onHitGasPump: () => void;
   onGameOver: () => void;
   canvasWidth: number;
   canvasHeight: number;
@@ -81,7 +82,7 @@ export async function tryJump(state: GameState, callbacks: EngineCallbacks): Pro
 
   const rescueFromPit = state.phase === "falling";
   if (!rescueFromPit && state.jumpCooldownMs > 0) return false;
-  if (!rescueFromPit && state.jumpLockoutMs > 0 && state.isJumping) return false;
+  if (!rescueFromPit && state.topJumpLocked) return false;
 
   const canPay = await callbacks.onJumpCost();
   if (!canPay) return false;
@@ -121,7 +122,6 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
   }
 
   state.jumpCooldownMs = Math.max(0, state.jumpCooldownMs - dt);
-  state.jumpLockoutMs = Math.max(0, state.jumpLockoutMs - dt);
   state.dinoReactionTimerMs = Math.max(0, state.dinoReactionTimerMs - dt);
   if (state.dinoReactionTimerMs === 0 && state.dinoReaction !== "gap-fall") {
     state.dinoReaction = "none";
@@ -141,6 +141,8 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
       state.isJumping = false;
     }
   }
+
+  updateTopJumpLock(state, callbacks);
 
   if (state.phase === "running") {
     advanceRunFrame(state, dt);
@@ -179,14 +181,41 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
   return state;
 }
 
+function updateTopJumpLock(state: GameState, callbacks: EngineCallbacks) {
+  if (state.phase === "falling" || state.phase === "game-over") return;
+
+  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const dinoScreenY = groundY - DINO_HEIGHT + state.dinoY;
+
+  if (dinoScreenY < 0) {
+    state.topJumpLocked = true;
+  } else if (state.topJumpLocked) {
+    state.topJumpLocked = false;
+  }
+}
+
 function maybeSpawnObstacle(state: GameState, callbacks: EngineCallbacks) {
   let gap = getObstacleGap(state.distance);
-  if (state.forbidGapNextSpawn) {
+  if (state.gapForbiddenSlots > 0 || state.bankForbiddenSlots > 0) {
     gap += HAZARD_GAP_BONUS;
   }
   if (state.distance - state.lastObstacleDistance < gap) return;
 
-  const type = chooseObstacleType(state.distance, state.lastObstacleType, state.forbidGapNextSpawn);
+  const gapsForbidden = state.gapForbiddenSlots > 0;
+  const banksForbidden = state.bankForbiddenSlots > 0;
+  if (state.gapForbiddenSlots > 0) {
+    state.gapForbiddenSlots--;
+  }
+  if (state.bankForbiddenSlots > 0) {
+    state.bankForbiddenSlots--;
+  }
+
+  const type = chooseObstacleType(state.distance, gapsForbidden, banksForbidden);
+  if (!type) {
+    state.lastObstacleDistance = state.distance;
+    return;
+  }
+
   const obs: Obstacle = {
     type,
     x: callbacks.canvasWidth + 20,
@@ -201,43 +230,34 @@ function maybeSpawnObstacle(state: GameState, callbacks: EngineCallbacks) {
   state.lastObstacleType = type;
 
   if (type === "gap") {
-    state.forbidGapNextSpawn = false;
-  } else if (state.forbidGapNextSpawn) {
-    state.forbidGapNextSpawn = false;
-  } else {
-    state.forbidGapNextSpawn = true;
+    state.bankForbiddenSlots = Math.max(state.bankForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
+  } else if (type === "bank") {
+    state.gapForbiddenSlots = Math.max(state.gapForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
   }
 }
+
+const GAP_SPAWN_CHANCE = 0.38;
+const BANK_SPAWN_CHANCE = 0.12;
+const EARLY_BANK_SPAWN_CHANCE = 0.1;
+const EARLY_GAME_DISTANCE = 700;
+const BANK_GAP_NEAR_SPAWN_SLOTS = 2;
 
 function chooseObstacleType(
   distance: number,
-  lastType: ObstacleType | null,
-  forbidGap: boolean,
-): ObstacleType {
-  const roll = Math.random();
-  let type: ObstacleType;
-  if (distance < 700) {
-    type = roll < 0.6 ? "gas-pump" : "bank";
-  } else if (roll < 0.35) {
-    type = "gap";
-  } else if (roll < 0.7) {
-    type = "gas-pump";
-  } else {
-    type = "bank";
+  gapsForbidden: boolean,
+  banksForbidden: boolean,
+): ObstacleType | null {
+  if (distance < EARLY_GAME_DISTANCE) {
+    if (!banksForbidden && Math.random() < EARLY_BANK_SPAWN_CHANCE) return "bank";
+    return null;
   }
 
-  if (lastType === "gap" && type === "gap") {
-    type = Math.random() < 0.5 ? "gas-pump" : "bank";
-  }
-  if (forbidGap && type === "gap") {
-    type = Math.random() < 0.5 ? "gas-pump" : "bank";
-  }
-
-  return type;
+  if (!gapsForbidden && Math.random() < GAP_SPAWN_CHANCE) return "gap";
+  if (!banksForbidden && Math.random() < BANK_SPAWN_CHANCE) return "bank";
+  return null;
 }
 
 function getObstacleWidth(type: ObstacleType, distance: number): number {
-  if (type === "gas-pump") return 36;
   if (type === "bank") return BANK_DRAW_WIDTH;
 
   const difficultyBonus = Math.min(50, distance / 180);
@@ -280,6 +300,8 @@ function checkCollisions(state: GameState, callbacks: EngineCallbacks) {
       return;
     }
 
+    if (obs.type !== "bank") continue;
+
     const obsRect = {
       x: obs.x + 4,
       y: groundY - obs.height + 4,
@@ -291,18 +313,37 @@ function checkCollisions(state: GameState, callbacks: EngineCallbacks) {
 
     obs.passed = true;
 
-    if (obs.type === "gas-pump") {
-      state.jumpLockoutMs = GAS_LOCKOUT_DURATION_MS;
-      state.screenShake = Math.max(state.screenShake, 6);
-      callbacks.onHitGasPump();
-      spawnHitParticles(state, obs.x, groundY - obs.height / 2, "#ff6b35");
-    } else {
-      state.bankPenaltyJumpsLeft = BANK_PENALTY_JUMPS;
-      state.dinoReaction = "obstacle-hit";
-      state.dinoReactionTimerMs = 450;
-      spawnHitParticles(state, obs.x, groundY - obs.height / 2, "#00d68f");
+    const bankTopY = obsRect.y;
+    const dinoFeetY = dinoRect.y + dinoRect.h;
+
+    if (isLandingOnBankTop(state, dinoFeetY, bankTopY)) {
+      state.dinoY += bankTopY - dinoFeetY;
+      state.dinoVelocity = BANK_TOP_BOUNCE_VELOCITY;
+      state.isJumping = true;
+      spawnJumpParticles(state, dinoX + DINO_WIDTH / 2, bankTopY);
+      continue;
     }
+
+    state.bankPenaltyJumpsLeft = BANK_PENALTY_JUMPS;
+    state.dinoReaction = "obstacle-hit";
+    state.dinoReactionTimerMs = 450;
+    spawnHitParticles(state, obs.x, groundY - obs.height / 2, "#00d68f");
   }
+}
+
+/** Feet crossing down onto the bank roof while airborne — not a side hit at ground level. */
+function isLandingOnBankTop(
+  state: GameState,
+  dinoFeetY: number,
+  bankTopY: number,
+): boolean {
+  if (!state.isJumping || state.dinoVelocity < 0) return false;
+
+  const prevFeetY = dinoFeetY - state.dinoVelocity;
+  return (
+    prevFeetY <= bankTopY + 4 &&
+    dinoFeetY >= bankTopY - BANK_TOP_LANDING_TOLERANCE
+  );
 }
 
 /** Foot center past pit left edge plus margin, only if feet still overlap the pit. */

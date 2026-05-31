@@ -7,7 +7,6 @@ type GameHUDProps = {
   distance: number;
   voucherCount: number;
   bankPenaltyJumpsLeft: number;
-  gasLockoutMs: number;
 };
 
 export function GameHUD({
@@ -15,7 +14,6 @@ export function GameHUD({
   distance,
   voucherCount,
   bankPenaltyJumpsLeft,
-  gasLockoutMs,
 }: GameHUDProps) {
   const balanceFormatted = (balance / 1e6).toFixed(3);
   const distanceFormatted = Math.floor(distance).toLocaleString();
@@ -40,14 +38,6 @@ export function GameHUD({
             title={`${BANK_PENALTY_MULTIPLIER}x jump cost`}
           >
             {BANK_PENALTY_MULTIPLIER}x
-          </span>
-        )}
-        {gasLockoutMs > 0 && (
-          <span
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-accent-red)] text-sm leading-none"
-            title="Air jumps disabled until landing"
-          >
-            ⛽
           </span>
         )}
       </div>

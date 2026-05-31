@@ -29,7 +29,7 @@ const BANK_SOURCE_WIDTH = 868;
 const BANK_SOURCE_HEIGHT = 673;
 const NY_BACKGROUND_PARALLAX = 0.22;
 
-export const BANK_DRAW_WIDTH = 108;
+export const BANK_DRAW_WIDTH = 216;
 export const BANK_DRAW_HEIGHT = Math.round(BANK_DRAW_WIDTH * (BANK_SOURCE_HEIGHT / BANK_SOURCE_WIDTH));
 
 type DinoFrameBounds = {

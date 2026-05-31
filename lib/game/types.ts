@@ -1,4 +1,4 @@
-export type ObstacleType = "gas-pump" | "bank" | "gap";
+export type ObstacleType = "bank" | "gap";
 
 export type Obstacle = {
   type: ObstacleType;
@@ -47,12 +47,14 @@ export type GameState = {
   groundOffset: number;
   frameCount: number;
   jumpCooldownMs: number;
-  jumpLockoutMs: number;
+  /** Set when the dino leaves the top of the canvas; cleared once visible again. */
+  topJumpLocked: boolean;
   bankPenaltyJumpsLeft: number;
   screenShake: number;
   lastObstacleDistance: number;
   lastObstacleType: ObstacleType | null;
-  forbidGapNextSpawn: boolean;
+  gapForbiddenSlots: number;
+  bankForbiddenSlots: number;
   runFrame: number;
   runFrameTimer: number;
   dinoReaction: DinoReaction;
@@ -69,8 +71,9 @@ export const MAX_SPEED = 12;
 export const SPEED_INCREMENT = 0.0003;
 export const OBSTACLE_MIN_GAP = 300;
 export const JUMP_COOLDOWN_MS = 320;
-export const GAS_LOCKOUT_DURATION_MS = 2200;
 export const BANK_PENALTY_JUMPS = 5;
+export const BANK_TOP_BOUNCE_VELOCITY = -9;
+export const BANK_TOP_LANDING_TOLERANCE = 14;
 export const JUMP_BUFFER_MS = 120;
 export const MAX_FALL_VELOCITY = 18;
 export const GAP_FALL_MARGIN = 8;

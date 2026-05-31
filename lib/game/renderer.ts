@@ -1,6 +1,6 @@
 import type { GameState, VisualZone } from "./types";
 import { GROUND_Y, DINO_WIDTH, DINO_HEIGHT } from "./types";
-import { drawDino, drawGasPump, drawBank, drawNyBackground, drawNyFloor } from "./sprites";
+import { drawDino, drawBank, drawNyBackground, drawNyFloor } from "./sprites";
 
 function getVisualZone(distance: number): VisualZone {
   if (distance < 2000) return "calm";
@@ -76,26 +76,8 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
 
   const hasNyBackground = drawNyBackground(ctx, width, groundY, state.groundOffset);
   if (!hasNyBackground) {
-    ctx.fillStyle = getBackgroundGradient(ctx, zone, groundY);
+    ctx.fillStyle = getBackgroundGradient(ctx, "calm", groundY);
     ctx.fillRect(0, 0, width, groundY);
-  }
-
-  // Zone tint over pixel-art skyline
-  if (hasNyBackground && zone !== "calm") {
-    ctx.save();
-    switch (zone) {
-      case "dusk":
-        ctx.fillStyle = "rgba(10, 10, 30, 0.25)";
-        break;
-      case "night":
-        ctx.fillStyle = "rgba(5, 5, 20, 0.45)";
-        break;
-      case "overdrive":
-        ctx.fillStyle = "rgba(2, 2, 12, 0.55)";
-        break;
-    }
-    ctx.fillRect(0, 0, width, groundY);
-    ctx.restore();
   }
 
   // Speed lines (night + overdrive, skyline only)
@@ -124,7 +106,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
   drawFloorWithGaps(ctx, width, groundY, height, floorGaps, () => {
     const hasNyFloor = drawNyFloor(ctx, width, groundY, height, state.groundOffset);
     if (!hasNyFloor) {
-      const glow = getGroundGlow(zone);
+      const glow = getGroundGlow("calm");
       ctx.save();
       ctx.strokeStyle = glow.color;
       ctx.globalAlpha = glow.alpha;
@@ -158,9 +140,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
 
   // Obstacles
   for (const obs of state.obstacles) {
-    if (obs.type === "gas-pump") {
-      drawGasPump(ctx, obs.x, groundY - obs.height);
-    } else if (obs.type === "bank") {
+    if (obs.type === "bank") {
       drawBank(ctx, obs.x, groundY - obs.height);
     }
   }
@@ -191,7 +171,6 @@ function getDinoSpriteFrame(state: GameState): number {
   if (state.dinoReaction === "gap-fall") return 7;
   if (state.dinoReaction === "obstacle-hit") return 6;
   if (!state.isJumping) return state.runFrame;
-  if (state.jumpLockoutMs > 0) return 5;
   if (state.jumpCooldownMs <= 0) return 4;
   return 3;
 }

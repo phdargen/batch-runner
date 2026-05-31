@@ -54,7 +54,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
     distance: 0,
     voucherCount: 0,
     bankPenaltyJumpsLeft: 0,
-    gasLockoutMs: 0,
   });
   const [gameOver, setGameOver] = useState(false);
   const [rank, setRank] = useState<number | null>(null);
@@ -215,7 +214,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
 
   const callbacks = useRef<EngineCallbacks>({
     onJumpCost: () => false,
-    onHitGasPump: () => {},
     onGameOver: () => {},
     canvasWidth: 800,
     canvasHeight: 400,
@@ -224,7 +222,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
   useEffect(() => {
     callbacks.current = {
       onJumpCost: handleJumpCost,
-      onHitGasPump: () => {},
       onGameOver: endGame,
       canvasWidth: canvasRef.current?.width ?? 800,
       canvasHeight: canvasRef.current?.height ?? 400,
@@ -285,7 +282,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
             distance: state.distance,
             voucherCount: jumpCountRef.current,
             bankPenaltyJumpsLeft: state.bankPenaltyJumpsLeft,
-            gasLockoutMs: state.jumpLockoutMs,
           });
         }
       }
@@ -403,7 +399,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
         distance={hudState.distance}
         voucherCount={hudState.voucherCount}
         bankPenaltyJumpsLeft={hudState.bankPenaltyJumpsLeft}
-        gasLockoutMs={hudState.gasLockoutMs}
       />
 
       <canvas ref={canvasRef} className="w-full h-full block" />
@@ -413,8 +408,7 @@ export function Game({ session, onPlayAgain }: GameProps) {
           <div className="text-center animate-slide-up">
             <p className="text-lg font-bold text-white mb-2">Press SPACE or tap to start</p>
             <p className="text-xs text-[var(--color-text-secondary)]">
-              Chain paid jumps over gaps. Gas disables in-flight chains; banks make{" "}
-              {BANK_PENALTY_MULTIPLIER}x jumps.
+              Chain paid jumps over gaps. Banks make {BANK_PENALTY_MULTIPLIER}x jumps.
             </p>
           </div>
         </div>
