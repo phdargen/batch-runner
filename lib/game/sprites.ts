@@ -13,6 +13,8 @@ const DINO_SPRITE_FRAME_COUNT = 8;
 const DINO_SPRITE_CELL_WIDTH = 444;
 const DINO_SPRITE_CELL_HEIGHT = 444;
 const DINO_SPRITE_SRC = "/dino.png";
+const DINO_WALK_SPRITE_SRC = "/dino3.png";
+const DINO_WALK_FRAME_COUNT = 3;
 const DINO_SPRITE_DRAW_HEIGHT = 56;
 const NY_BACKGROUND_SRC = "/ny.png";
 const FLOOR_NY_SRC = "/floor_ny.png";
@@ -48,6 +50,14 @@ const DINO_FRAME_BOUNDS: DinoFrameBounds[] = [
   { x: 50, y: 32, width: 247, height: 267 },
 ];
 
+/** Uniform on-screen width for all dino3 walk frames. */
+const DINO_WALK_DRAW_WIDTH =
+  DINO_SPRITE_DRAW_HEIGHT * (DINO_FRAME_BOUNDS[0].width / DINO_FRAME_BOUNDS[0].height);
+
+/** Vertical trim within each 724px column (feet aligned at bottom). */
+const DINO_WALK_TRIM_Y = [87, 87, 87];
+const DINO_WALK_TRIM_HEIGHT = [495, 494, 494];
+
 const spriteCache = new Map<string, HTMLImageElement>();
 
 function getSprite(src: string): HTMLImageElement | null {
@@ -68,6 +78,10 @@ function getDinoSprite(): HTMLImageElement | null {
   return getSprite(DINO_SPRITE_SRC);
 }
 
+function getDinoWalkSprite(): HTMLImageElement | null {
+  return getSprite(DINO_WALK_SPRITE_SRC);
+}
+
 function tilePixelImage(
   ctx: CanvasRenderingContext2D,
   sprite: HTMLImageElement,
@@ -80,10 +94,13 @@ function tilePixelImage(
 ) {
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  let drawX = x - (scrollOffset % tileWidth);
+  const w = Math.round(tileWidth);
+  const h = Math.round(tileHeight);
+  const offset = ((scrollOffset % w) + w) % w;
+  let drawX = Math.floor(x - offset);
   while (drawX < canvasWidth) {
-    ctx.drawImage(sprite, drawX, y, tileWidth, tileHeight);
-    drawX += tileWidth;
+    ctx.drawImage(sprite, drawX, Math.floor(y), w, h);
+    drawX += w;
   }
   ctx.restore();
 }
@@ -104,7 +121,10 @@ function tilePixelImageSource(
 ) {
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  let drawX = x - (scrollOffset % tileWidth);
+  const w = Math.round(tileWidth);
+  const h = Math.round(tileHeight);
+  const offset = ((scrollOffset % w) + w) % w;
+  let drawX = Math.floor(x - offset);
   while (drawX < canvasWidth) {
     ctx.drawImage(
       sprite,
@@ -113,16 +133,78 @@ function tilePixelImageSource(
       sourceWidth,
       sourceHeight,
       drawX,
-      y,
-      tileWidth,
-      tileHeight,
+      Math.floor(y),
+      w,
+      h,
     );
-    drawX += tileWidth;
+    drawX += w;
   }
   ctx.restore();
 }
 
-export function drawDino(
+function getDinoDrawWidth(bounds: DinoFrameBounds): number {
+  return DINO_SPRITE_DRAW_HEIGHT * (bounds.width / bounds.height);
+}
+
+function drawDinoSprite(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  sprite: HTMLImageElement,
+  sourceX: number,
+  sourceY: number,
+  sourceWidth: number,
+  sourceHeight: number,
+  drawWidth: number,
+) {
+  const drawX = x + DINO_WIDTH / 2 - drawWidth / 2;
+  const drawY = y + DINO_HEIGHT - DINO_SPRITE_DRAW_HEIGHT;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(
+    sprite,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    drawX,
+    drawY,
+    drawWidth,
+    DINO_SPRITE_DRAW_HEIGHT,
+  );
+  ctx.restore();
+}
+
+function drawDinoWalkFrame(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  frame: number,
+) {
+  const sprite = getDinoWalkSprite();
+  if (!sprite) return;
+
+  const safeFrame = ((frame % DINO_WALK_FRAME_COUNT) + DINO_WALK_FRAME_COUNT) % DINO_WALK_FRAME_COUNT;
+  const colWidth = Math.floor(sprite.naturalWidth / DINO_WALK_FRAME_COUNT);
+  const sourceX = safeFrame * colWidth;
+  const sourceWidth =
+    safeFrame === DINO_WALK_FRAME_COUNT - 1 ? sprite.naturalWidth - sourceX : colWidth;
+
+  drawDinoSprite(
+    ctx,
+    x,
+    y,
+    sprite,
+    sourceX,
+    DINO_WALK_TRIM_Y[safeFrame]!,
+    sourceWidth,
+    DINO_WALK_TRIM_HEIGHT[safeFrame]!,
+    DINO_WALK_DRAW_WIDTH,
+  );
+}
+
+function drawDinoAtlasFrame(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -135,24 +217,37 @@ export function drawDino(
   const frameBounds = DINO_FRAME_BOUNDS[safeFrame];
   const sourceX = (safeFrame % DINO_SPRITE_COLUMNS) * DINO_SPRITE_CELL_WIDTH + frameBounds.x;
   const sourceY = Math.floor(safeFrame / DINO_SPRITE_COLUMNS) * DINO_SPRITE_CELL_HEIGHT + frameBounds.y;
-  const drawWidth = DINO_SPRITE_DRAW_HEIGHT * (frameBounds.width / frameBounds.height);
-  const drawX = x + DINO_WIDTH / 2 - drawWidth / 2;
-  const drawY = y + DINO_HEIGHT - DINO_SPRITE_DRAW_HEIGHT;
 
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(
+  drawDinoSprite(
+    ctx,
+    x,
+    y,
     sprite,
     sourceX,
     sourceY,
     frameBounds.width,
     frameBounds.height,
-    drawX,
-    drawY,
-    drawWidth,
-    DINO_SPRITE_DRAW_HEIGHT,
+    getDinoDrawWidth(frameBounds),
   );
-  ctx.restore();
+}
+
+export function drawDino(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  frame: number,
+) {
+  if (frame >= 0 && frame < DINO_WALK_FRAME_COUNT) {
+    const walkSprite = getDinoWalkSprite();
+    if (walkSprite) {
+      drawDinoWalkFrame(ctx, x, y, frame);
+      return;
+    }
+    drawDinoAtlasFrame(ctx, x, y, frame);
+    return;
+  }
+
+  drawDinoAtlasFrame(ctx, x, y, frame);
 }
 
 export function drawGasPump(ctx: CanvasRenderingContext2D, x: number, y: number) {
@@ -194,18 +289,18 @@ export function drawGasPump(ctx: CanvasRenderingContext2D, x: number, y: number)
 export function drawNyBackground(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
-  canvasHeight: number,
+  skyHeight: number,
   scrollOffset: number,
 ): boolean {
   const sprite = getSprite(NY_BACKGROUND_SRC);
   if (!sprite) return false;
 
-  const drawHeight = canvasHeight;
-  const drawWidth = (sprite.naturalWidth / sprite.naturalHeight) * drawHeight;
+  const drawHeight = Math.round(skyHeight);
+  const drawWidth = Math.round((sprite.naturalWidth / sprite.naturalHeight) * drawHeight);
   tilePixelImage(
     ctx,
     sprite,
-    scrollOffset * NY_BACKGROUND_PARALLAX,
+    Math.floor(scrollOffset * NY_BACKGROUND_PARALLAX),
     canvasWidth,
     0,
     0,
@@ -234,7 +329,7 @@ export function drawNyFloor(
     FLOOR_NY_SOURCE_Y,
     FLOOR_NY_SOURCE_WIDTH,
     FLOOR_NY_SOURCE_HEIGHT,
-    scrollOffset,
+    Math.floor(scrollOffset),
     canvasWidth,
     0,
     groundY,

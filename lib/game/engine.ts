@@ -63,6 +63,16 @@ export type EngineCallbacks = {
   canvasHeight: number;
 };
 
+const RUN_FRAME_MS = 90;
+
+function advanceRunFrame(state: GameState, dt: number) {
+  state.runFrameTimer += dt;
+  if (state.runFrameTimer >= RUN_FRAME_MS) {
+    state.runFrame = (state.runFrame + 1) % 3;
+    state.runFrameTimer = 0;
+  }
+}
+
 /**
  * Attempts a paid jump. Airborne jumps are allowed once the fast recharge is ready.
  */
@@ -97,6 +107,7 @@ export async function tryJump(state: GameState, callbacks: EngineCallbacks): Pro
 export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): GameState {
   if (state.phase === "idle" || state.phase === "game-over") {
     updateClouds(state, callbacks.canvasWidth);
+    advanceRunFrame(state, dt);
     state.frameCount++;
     return state;
   }
@@ -131,13 +142,8 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
     }
   }
 
-  // Run animation (frozen while falling — sprite uses gap-fall frame)
-  if (state.phase !== "falling") {
-    state.runFrameTimer += dt;
-    if (state.runFrameTimer > 120) {
-      state.runFrame = (state.runFrame + 1) % 3;
-      state.runFrameTimer = 0;
-    }
+  if (state.phase === "running") {
+    advanceRunFrame(state, dt);
   }
 
   // Move obstacles (frozen horizontally while falling straight down)

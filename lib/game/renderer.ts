@@ -36,6 +36,17 @@ function getBackgroundGradient(
   return grad;
 }
 
+function getPitVoidGradient(
+  ctx: CanvasRenderingContext2D,
+  groundY: number,
+  height: number,
+): CanvasGradient {
+  const grad = ctx.createLinearGradient(0, groundY, 0, height);
+  grad.addColorStop(0, "#0f0f28");
+  grad.addColorStop(1, "#020208");
+  return grad;
+}
+
 function getGroundGlow(zone: VisualZone): { color: string; alpha: number } {
   switch (zone) {
     case "calm":
@@ -51,7 +62,7 @@ function getGroundGlow(zone: VisualZone): { color: string; alpha: number } {
 
 export function render(ctx: CanvasRenderingContext2D, state: GameState) {
   const { width, height } = ctx.canvas;
-  const groundY = height * GROUND_Y;
+  const groundY = Math.floor(height * GROUND_Y);
   const zone = getVisualZone(state.distance);
 
   ctx.save();
@@ -63,13 +74,13 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.translate(shakeX, shakeY);
   }
 
-  const hasNyBackground = drawNyBackground(ctx, width, height, state.groundOffset);
+  const hasNyBackground = drawNyBackground(ctx, width, groundY, state.groundOffset);
   if (!hasNyBackground) {
-    ctx.fillStyle = getBackgroundGradient(ctx, zone, height);
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = getBackgroundGradient(ctx, zone, groundY);
+    ctx.fillRect(0, 0, width, groundY);
   }
 
-  // Zone tint over pixel-art background
+  // Zone tint over pixel-art skyline
   if (hasNyBackground && zone !== "calm") {
     ctx.save();
     switch (zone) {
@@ -83,18 +94,18 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
         ctx.fillStyle = "rgba(2, 2, 12, 0.55)";
         break;
     }
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, width, groundY);
     ctx.restore();
   }
 
-  // Speed lines (night + overdrive)
+  // Speed lines (night + overdrive, skyline only)
   if (zone === "night" || zone === "overdrive") {
     ctx.save();
     ctx.strokeStyle = zone === "overdrive" ? "rgba(69,126,255,0.15)" : "rgba(69,126,255,0.07)";
     ctx.lineWidth = 1;
     const lineCount = zone === "overdrive" ? 12 : 5;
     for (let i = 0; i < lineCount; i++) {
-      const lineY = (((state.frameCount * 3 + i * 97) % height) + height) % height;
+      const lineY = (((state.frameCount * 3 + i * 97) % groundY) + groundY) % groundY;
       ctx.beginPath();
       ctx.moveTo(0, lineY);
       ctx.lineTo(width * 0.3, lineY);
@@ -102,6 +113,9 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     }
     ctx.restore();
   }
+
+  ctx.fillStyle = "#0a0a14";
+  ctx.fillRect(0, groundY, width, height - groundY);
 
   const floorGaps = state.obstacles
     .filter((obs) => obs.type === "gap")
@@ -134,6 +148,13 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
       ctx.restore();
     }
   });
+
+  if (floorGaps.length > 0) {
+    ctx.fillStyle = getPitVoidGradient(ctx, groundY, height);
+    for (const gap of floorGaps) {
+      ctx.fillRect(gap.x, groundY, gap.width, height - groundY);
+    }
+  }
 
   // Obstacles
   for (const obs of state.obstacles) {
