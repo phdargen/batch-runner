@@ -1,20 +1,12 @@
 "use client";
 
-import { BANK_PENALTY_MULTIPLIER } from "@/lib/x402/config";
-
 type GameHUDProps = {
   balance: number;
   distance: number;
   voucherCount: number;
-  bankPenaltyJumpsLeft: number;
 };
 
-export function GameHUD({
-  balance,
-  distance,
-  voucherCount,
-  bankPenaltyJumpsLeft,
-}: GameHUDProps) {
+export function GameHUD({ balance, distance, voucherCount }: GameHUDProps) {
   const balanceFormatted = (balance / 1e6).toFixed(3);
   const distanceFormatted = Math.floor(distance).toLocaleString();
 
@@ -29,17 +21,6 @@ export function GameHUD({
         />
         <HUDStat icon="🤖" value={`${distanceFormatted}m`} color="var(--color-base-blue-light)" />
         <HUDStat icon="✍️" value={`${voucherCount}`} color="var(--color-text-secondary)" />
-      </div>
-
-      <div className="flex items-center gap-2">
-        {bankPenaltyJumpsLeft > 0 && (
-          <span
-            className="flex h-7 min-w-7 px-1 items-center justify-center rounded-full bg-[var(--color-accent-red)] text-white text-[10px] font-bold tabular-nums leading-none"
-            title={`${BANK_PENALTY_MULTIPLIER}x jump cost`}
-          >
-            {BANK_PENALTY_MULTIPLIER}x
-          </span>
-        )}
       </div>
     </div>
   );

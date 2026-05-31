@@ -1,6 +1,6 @@
 import type { GameState, VisualZone } from "./types";
 import { DINO_WIDTH, DINO_HEIGHT } from "./types";
-import { drawDino, drawBank, drawPlatformSet, drawNyBackground, drawGlowFloor, getGroundY } from "./sprites";
+import { drawDino, drawPlatformSet, drawNyBackground, drawGlowFloor, getGroundY } from "./sprites";
 
 function getVisualZone(distance: number): VisualZone {
   if (distance < 2000) return "calm";
@@ -80,12 +80,6 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     drawGlowFloor(ctx, width, groundY, state.groundOffset);
   });
 
-  for (const obs of state.obstacles) {
-    if (obs.type === "bank") {
-      drawBank(ctx, obs.x, groundY - obs.height);
-    }
-  }
-
   // Floating platforms
   for (const platform of state.platforms) {
     drawPlatformSet(ctx, platform.x, groundY, platform.elev, platform.tileCount);
@@ -115,7 +109,6 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
 
 function getDinoSpriteFrame(state: GameState): number {
   if (state.dinoReaction === "gap-fall") return 7;
-  if (state.dinoReaction === "obstacle-hit") return 6;
   if (!state.isJumping) return state.runFrame;
   if (state.jumpCooldownMs <= 0) return 4;
   return 3;

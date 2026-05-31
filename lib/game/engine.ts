@@ -1,7 +1,5 @@
 import type { GameState, Obstacle, Platform, Cloud, ObstacleType, GamePhase } from "./types";
 import {
-  BANK_DRAW_WIDTH,
-  BANK_DRAW_HEIGHT,
   PLATFORM_DRAW_WIDTH,
   PLATFORM_DRAW_HEIGHT,
   getGroundY,
@@ -16,12 +14,6 @@ import {
   SPEED_INCREMENT,
   OBSTACLE_MIN_GAP,
   JUMP_COOLDOWN_MS,
-  BANK_PENALTY_JUMPS,
-  BANK_TOP_BOUNCE_VELOCITY,
-  BANK_TOP_LANDING_TOLERANCE,
-  BANK_ROOF_LEADING_MARGIN,
-  BANK_LEADING_EDGE_WIDTH,
-  BANK_ROOF_MIN_AIRBORNE_PX,
   MAX_FALL_VELOCITY,
   GAP_FALL_MARGIN,
   HAZARD_GAP_BONUS,
@@ -50,14 +42,12 @@ export function createInitialState(): GameState {
     frameCount: 0,
     jumpCooldownMs: 0,
     topJumpLocked: false,
-    bankPenaltyJumpsLeft: 0,
     screenShake: 0,
     lastObstacleDistance: 0,
     lastObstacleType: null,
     lastPlatformDistance: 0,
     gapForbiddenSlots: 0,
     nextGapAllowedDistance: 0,
-    bankForbiddenSlots: 0,
     platformForbiddenSlots: 0,
     runFrame: 0,
     runFrameTimer: 0,
@@ -132,13 +122,12 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
     return state;
   }
 
-  // Speed ramp & score only while actually running (not during pit fall)
   if (state.phase === "running") {
     state.speed = Math.min(MAX_SPEED, state.speed + SPEED_INCREMENT * dt);
     state.distance += state.speed * (dt / 16);
+    state.groundOffset += state.speed;
     maybeSpawnObstacle(state, callbacks);
     maybeSpawnPlatform(state, callbacks);
-    state.groundOffset += state.speed;
   }
 
   state.jumpCooldownMs = Math.max(0, state.jumpCooldownMs - dt);
@@ -162,12 +151,6 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
       // Snapped onto a platform top.
     } else if (
       state.phase === "running" &&
-      state.dinoVelocity >= 0 &&
-      tryBounceOffBankTop(state, callbacks, prevDinoY)
-    ) {
-      // Bounced off a bank roof.
-    } else if (
-      state.phase === "running" &&
       tryBounceOffPlatformBottom(state, callbacks, prevDinoY)
     ) {
       // Head hit a platform underside — bounced downward.
@@ -189,7 +172,6 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
     advanceRunFrame(state, dt);
   }
 
-  // Move obstacles and platforms (frozen horizontally while falling straight down)
   if (state.phase === "running") {
     for (const obs of state.obstacles) {
       obs.x -= state.speed;
@@ -199,7 +181,6 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
     }
   }
 
-  // Collision detection
   checkCollisions(state, callbacks);
   checkPlatformSupport(state, callbacks);
 
@@ -242,22 +223,18 @@ function updateTopJumpLock(state: GameState, callbacks: EngineCallbacks) {
 
 function maybeSpawnObstacle(state: GameState, callbacks: EngineCallbacks) {
   let gap = getObstacleGap(state.distance);
-  if (state.gapForbiddenSlots > 0 || state.bankForbiddenSlots > 0) {
+  if (state.gapForbiddenSlots > 0) {
     gap += HAZARD_GAP_BONUS;
   }
   if (state.distance - state.lastObstacleDistance < gap) return;
 
   const gapsForbidden =
     state.distance < state.nextGapAllowedDistance || state.gapForbiddenSlots > 0;
-  const banksForbidden = state.bankForbiddenSlots > 0;
   if (state.gapForbiddenSlots > 0) {
     state.gapForbiddenSlots--;
   }
-  if (state.bankForbiddenSlots > 0) {
-    state.bankForbiddenSlots--;
-  }
 
-  const type = chooseObstacleType(state.distance, gapsForbidden, banksForbidden);
+  const type = chooseObstacleType(gapsForbidden);
   if (!type) {
     state.lastObstacleDistance = state.distance;
     return;
@@ -267,18 +244,12 @@ function maybeSpawnObstacle(state: GameState, callbacks: EngineCallbacks) {
     type,
     x: callbacks.canvasWidth + 20,
     y: 0,
-    width: getObstacleWidth(type, state.distance),
-    height: type === "gap" ? 0 : type === "bank" ? BANK_DRAW_HEIGHT : 48,
+    width: getObstacleWidth(state.distance),
+    height: 0,
     passed: false,
   };
 
-  if (type === "bank" && overlapsAnyPlatform(obs.x, obs.width, state.platforms)) {
-    return;
-  }
-  if (type === "bank" && overlapsAnyGap(obs.x, obs.width, state.obstacles)) {
-    return;
-  }
-  if (type === "gap" && overlapsAnyBank(obs.x, obs.width, state.obstacles)) {
+  if (overlapsAnyGap(obs.x, obs.width, state.obstacles)) {
     return;
   }
 
@@ -286,15 +257,9 @@ function maybeSpawnObstacle(state: GameState, callbacks: EngineCallbacks) {
   state.lastObstacleDistance = state.distance;
   state.lastObstacleType = type;
 
-  if (type === "gap") {
-    const gapSafeZone = state.distance + obs.width * 2;
-    state.nextGapAllowedDistance = Math.max(state.nextGapAllowedDistance, gapSafeZone);
-    state.bankForbiddenSlots = Math.max(state.bankForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
-    state.platformForbiddenSlots = Math.max(state.platformForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
-  } else if (type === "bank") {
-    state.gapForbiddenSlots = Math.max(state.gapForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
-    state.platformForbiddenSlots = Math.max(state.platformForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
-  }
+  const gapSafeZone = state.distance + obs.width * 2;
+  state.nextGapAllowedDistance = Math.max(state.nextGapAllowedDistance, gapSafeZone);
+  state.platformForbiddenSlots = Math.max(state.platformForbiddenSlots, GAP_NEAR_SPAWN_SLOTS);
 }
 
 const PLATFORM_SPAWN_CHANCE = 0.22;
@@ -319,20 +284,15 @@ function maybeSpawnPlatform(state: GameState, callbacks: EngineCallbacks) {
   const x = callbacks.canvasWidth + 20;
   const elev = pickPlatformElev();
 
-  if (overlapsAnyBank(x, width, state.obstacles)) return;
-
   const platform: Platform = { x, elev, tileCount, width };
   state.platforms.push(platform);
   state.lastPlatformDistance = state.distance;
 }
 
 const GAP_SPAWN_CHANCE = 0.3;
-const BANK_SPAWN_CHANCE = 0.48;
 /** Share of spawn rolls that place no hazard. */
 const OBSTACLE_EMPTY_WEIGHT = 0.22;
-const EARLY_BANK_SPAWN_CHANCE = 0.42;
-const EARLY_GAME_DISTANCE = 700;
-const BANK_GAP_NEAR_SPAWN_SLOTS = 1;
+const GAP_NEAR_SPAWN_SLOTS = 1;
 
 /** Gap width = base * multiplier; higher multipliers are rarer. */
 const GAP_WIDTH_TIERS = [
@@ -342,29 +302,11 @@ const GAP_WIDTH_TIERS = [
   { mult: 4, weight: 6 },
 ] as const;
 
-function chooseObstacleType(
-  distance: number,
-  gapsForbidden: boolean,
-  banksForbidden: boolean,
-): ObstacleType | null {
-  if (distance < EARLY_GAME_DISTANCE) {
-    if (!banksForbidden && Math.random() < EARLY_BANK_SPAWN_CHANCE) return "bank";
-    return null;
-  }
+function chooseObstacleType(gapsForbidden: boolean): ObstacleType | null {
+  if (gapsForbidden) return null;
 
-  const canGap = !gapsForbidden;
-  const canBank = !banksForbidden;
-  if (!canGap && !canBank) return null;
-
-  const gapWeight = canGap ? GAP_SPAWN_CHANCE : 0;
-  const bankWeight = canBank ? BANK_SPAWN_CHANCE : 0;
-  const emptyWeight = OBSTACLE_EMPTY_WEIGHT;
-  const total = gapWeight + bankWeight + emptyWeight;
-  if (total <= 0) return null;
-
-  const roll = Math.random() * total;
-  if (roll < gapWeight) return "gap";
-  if (roll < gapWeight + bankWeight) return "bank";
+  const total = GAP_SPAWN_CHANCE + OBSTACLE_EMPTY_WEIGHT;
+  if (Math.random() * total < GAP_SPAWN_CHANCE) return "gap";
   return null;
 }
 
@@ -378,9 +320,7 @@ function rollGapWidthMultiplier(): number {
   return 1;
 }
 
-function getObstacleWidth(type: ObstacleType, distance: number): number {
-  if (type === "bank") return BANK_DRAW_WIDTH;
-
+function getObstacleWidth(distance: number): number {
   const difficultyBonus = Math.min(50, distance / 180);
   const baseWidth = 70 + Math.random() * 35 + difficultyBonus;
   return baseWidth * rollGapWidthMultiplier();
@@ -390,20 +330,10 @@ function overlapsHorizontally(aX: number, aW: number, bX: number, bW: number): b
   return aX < bX + bW && aX + aW > bX;
 }
 
-function overlapsAnyBank(x: number, width: number, obstacles: Obstacle[]): boolean {
-  return obstacles.some(
-    (obs) => obs.type === "bank" && overlapsHorizontally(x, width, obs.x, obs.width),
-  );
-}
-
 function overlapsAnyGap(x: number, width: number, obstacles: Obstacle[]): boolean {
   return obstacles.some(
     (obs) => obs.type === "gap" && overlapsHorizontally(x, width, obs.x, obs.width),
   );
-}
-
-function overlapsAnyPlatform(x: number, width: number, platforms: Platform[]): boolean {
-  return platforms.some((platform) => overlapsHorizontally(x, width, platform.x, platform.width));
 }
 
 function getObstacleGap(distance: number): number {
@@ -442,63 +372,6 @@ function checkCollisions(state: GameState, callbacks: EngineCallbacks) {
       return;
     }
 
-    if (obs.type !== "bank") continue;
-
-    const obsRect = {
-      x: obs.x + 4,
-      y: groundY - obs.height + 4,
-      w: obs.width - 8,
-      h: obs.height - 4,
-    };
-
-    const dino = getDinoHitbox(state, groundY);
-    const dinoHitbox = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
-    if (!rectsOverlap(dinoHitbox, obsRect)) continue;
-
-    const bankTopY = obsRect.y;
-    const bankBottomY = bankTopY + obsRect.h;
-    const prevFeetY = state.isJumping ? groundY + state.dinoY - state.dinoVelocity : dino.feetY;
-
-    // Late jump: still rising into the face or roof lip — always a hit.
-    if (
-      state.isJumping &&
-      state.dinoVelocity < 0 &&
-      dino.feetY >= bankTopY - BANK_TOP_LANDING_TOLERANCE
-    ) {
-      obs.passed = true;
-      state.bankPenaltyJumpsLeft = BANK_PENALTY_JUMPS;
-      state.dinoReaction = "obstacle-hit";
-      state.dinoReactionTimerMs = 450;
-      spawnHitParticles(state, obs.x, groundY - obs.height / 2, "#00d68f");
-      continue;
-    }
-
-    // High arc over the roof — not a hit yet.
-    if (state.isJumping && state.dinoVelocity < 0 && dino.feetY < bankTopY - 4) continue;
-
-    if (
-      shouldBounceOffBankRoof(
-        prevFeetY,
-        dino.feetY,
-        bankTopY,
-        bankBottomY,
-        state.isJumping,
-        state.dinoVelocity >= 0,
-        groundY,
-        dino.x,
-        dino.x + dino.w,
-        obs,
-      )
-    ) {
-      applyBankRoofBounce(state, obs, groundY, dino, bankTopY);
-      continue;
-    }
-
-    obs.passed = true;
-    state.bankPenaltyJumpsLeft = BANK_PENALTY_JUMPS;
-    state.dinoReaction = "obstacle-hit";
-    state.dinoReactionTimerMs = 450;
-    spawnHitParticles(state, obs.x, groundY - obs.height / 2, "#00d68f");
   }
 
 }
@@ -540,140 +413,6 @@ function dinoOverlapsPlatformHorizontallySwept(
     ...platform,
     x: platform.x + sweepDistance,
   });
-}
-
-function dinoOverlapsBankHorizontallySwept(
-  dinoLeft: number,
-  dinoRight: number,
-  bank: Obstacle,
-  sweepDistance: number,
-  leadingMargin = 0,
-): boolean {
-  const bankLeft = bank.x + 4 - leadingMargin;
-  const bankRight = bank.x + bank.width - 4;
-  if (dinoRight > bankLeft && dinoLeft < bankRight) return true;
-  if (sweepDistance <= 0) return false;
-  return (
-    dinoRight > bankLeft + sweepDistance && dinoLeft < bankRight + sweepDistance
-  );
-}
-
-function isOnBankLeadingEdge(
-  dinoLeft: number,
-  dinoRight: number,
-  bank: Obstacle,
-): boolean {
-  const bankLeft = bank.x + 4;
-  return dinoRight > bankLeft && dinoLeft < bankLeft + BANK_LEADING_EDGE_WIDTH;
-}
-
-function shouldBounceOffBankRoof(
-  prevFeetY: number,
-  feetY: number,
-  bankTopY: number,
-  bankBottomY: number,
-  isJumping: boolean,
-  isDescending: boolean,
-  groundY: number,
-  dinoLeft: number,
-  dinoRight: number,
-  bank: Obstacle,
-): boolean {
-  if (!isJumping || !isDescending) return false;
-
-  // Ground-level run into the face — never auto-bounce.
-  if (feetY >= groundY - BANK_ROOF_MIN_AIRBORNE_PX) return false;
-
-  if (
-    shouldLandOnPlatformTop(
-      prevFeetY,
-      feetY,
-      bankTopY,
-      bankBottomY,
-      BANK_TOP_LANDING_TOLERANCE,
-    ) &&
-    prevFeetY <= bankTopY + BANK_TOP_LANDING_TOLERANCE
-  ) {
-    return true;
-  }
-
-  // Left-edge only: descending into the roof lip, feet near the surface.
-  if (!isOnBankLeadingEdge(dinoLeft, dinoRight, bank)) return false;
-
-  return (
-    feetY >= bankTopY - BANK_TOP_LANDING_TOLERANCE * 2 &&
-    feetY <= bankTopY + BANK_TOP_LANDING_TOLERANCE &&
-    prevFeetY <= bankTopY + BANK_TOP_LANDING_TOLERANCE &&
-    feetY >= prevFeetY
-  );
-}
-
-function applyBankRoofBounce(
-  state: GameState,
-  obs: Obstacle,
-  groundY: number,
-  dino: ReturnType<typeof getDinoHitbox>,
-  bankTopY: number,
-) {
-  obs.passed = true;
-  state.dinoY += bankTopY - dino.feetY;
-  state.dinoVelocity = BANK_TOP_BOUNCE_VELOCITY;
-  state.isJumping = true;
-  spawnJumpParticles(state, dino.centerX, bankTopY);
-}
-
-function tryBounceOffBankTop(
-  state: GameState,
-  callbacks: EngineCallbacks,
-  prevDinoY: number,
-): boolean {
-  if (!state.isJumping || state.dinoVelocity < 0) return false;
-
-  const groundY = getGroundY(callbacks.canvasHeight);
-  const prevFeetY = groundY + prevDinoY;
-  const feetY = groundY + state.dinoY;
-  const dino = getDinoHitbox(state, groundY);
-  const dinoLeft = dino.x;
-  const dinoRight = dino.x + dino.w;
-
-  for (const obs of state.obstacles) {
-    if (obs.passed || obs.type !== "bank") continue;
-    if (
-      !dinoOverlapsBankHorizontallySwept(
-        dinoLeft,
-        dinoRight,
-        obs,
-        state.speed,
-        BANK_ROOF_LEADING_MARGIN,
-      )
-    ) {
-      continue;
-    }
-
-    const bankTopY = groundY - obs.height + 4;
-    const bankBottomY = bankTopY + obs.height - 4;
-    if (
-      !shouldBounceOffBankRoof(
-        prevFeetY,
-        feetY,
-        bankTopY,
-        bankBottomY,
-        true,
-        true,
-        groundY,
-        dinoLeft,
-        dinoRight,
-        obs,
-      )
-    ) {
-      continue;
-    }
-
-    applyBankRoofBounce(state, obs, groundY, dino, bankTopY);
-    return true;
-  }
-
-  return false;
 }
 
 function tryLandOnPlatform(

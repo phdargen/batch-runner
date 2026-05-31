@@ -5,12 +5,7 @@ import { createInitialState, tick, tryJump } from "@/lib/game/engine";
 import type { EngineCallbacks } from "@/lib/game/engine";
 import { render } from "@/lib/game/renderer";
 import { JUMP_BUFFER_MS, type GameState } from "@/lib/game/types";
-import {
-  BANK_PENALTY_MULTIPLIER,
-  JUMP_COST_UNITS,
-  NEXT_DEV,
-  VOUCHER_CHECKPOINT_JUMPS,
-} from "@/lib/x402/config";
+import { JUMP_COST_UNITS, NEXT_DEV, VOUCHER_CHECKPOINT_JUMPS } from "@/lib/x402/config";
 import { signGameVoucher, verifyGameVoucher } from "@/lib/x402/channel";
 import type { SessionInfo } from "./DepositFlow";
 import { GameHUD } from "./GameHUD";
@@ -50,18 +45,13 @@ export function Game({ session, onPlayAgain }: GameProps) {
     balance: Number(balanceRef.current),
     distance: 0,
     voucherCount: 0,
-    bankPenaltyJumpsLeft: 0,
   });
   const [gameOver, setGameOver] = useState(false);
   const [rank, setRank] = useState<number | null>(null);
   const [started, setStarted] = useState(false);
   const startedRef = useRef(false);
 
-  const currentJumpCost = useCallback((): bigint => {
-    return stateRef.current.bankPenaltyJumpsLeft > 0
-      ? JUMP_COST_UNITS * BigInt(BANK_PENALTY_MULTIPLIER)
-      : JUMP_COST_UNITS;
-  }, []);
+  const currentJumpCost = useCallback((): bigint => JUMP_COST_UNITS, []);
 
   const flushVoucherCheckpoint = useCallback(
     (keepalive = false): Promise<void> => {
@@ -137,10 +127,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
     cumulativeRef.current = nextCumulative;
     roundSpentRef.current += cost;
     jumpCountRef.current++;
-
-    if (stateRef.current.bankPenaltyJumpsLeft > 0) {
-      stateRef.current.bankPenaltyJumpsLeft--;
-    }
 
     lastVoucherRef.current = voucher;
     void session.storage.set(cid, {
@@ -278,7 +264,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
             balance: Number(balanceRef.current),
             distance: state.distance,
             voucherCount: jumpCountRef.current,
-            bankPenaltyJumpsLeft: state.bankPenaltyJumpsLeft,
           });
         }
       }
@@ -395,7 +380,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
         balance={hudState.balance}
         distance={hudState.distance}
         voucherCount={hudState.voucherCount}
-        bankPenaltyJumpsLeft={hudState.bankPenaltyJumpsLeft}
       />
 
       <canvas ref={canvasRef} className="w-full h-full block" />
@@ -405,7 +389,7 @@ export function Game({ session, onPlayAgain }: GameProps) {
           <div className="text-center animate-slide-up">
             <p className="text-lg font-bold text-white mb-2">Press SPACE or tap to start</p>
             <p className="text-xs text-[var(--color-text-secondary)]">
-              Chain paid jumps over gaps. Banks make {BANK_PENALTY_MULTIPLIER}x jumps.
+              Each jump costs $0.001. Jump over gaps to stay on the chain.
             </p>
           </div>
         </div>

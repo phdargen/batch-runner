@@ -12,7 +12,6 @@ export const PLAY_PRICE = "$0.01";
 export const JUMP_PRICE = "$0.001";
 export const MIN_PLAY_CREDITS = 1;
 export const MAX_PLAY_CREDITS = 10;
-export const BANK_PENALTY_MULTIPLIER = 2;
 
 export const PLAY_PRICE_UNITS = BigInt(convertToTokenAmount(PLAY_PRICE.slice(1), USDC_DECIMALS));
 export const JUMP_COST_UNITS = BigInt(convertToTokenAmount(JUMP_PRICE.slice(1), USDC_DECIMALS));

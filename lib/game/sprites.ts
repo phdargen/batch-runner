@@ -26,15 +26,7 @@ export const BASE_LOGO_PLATFORM_TILE_COUNT = 4;
 export function getGroundY(canvasHeight: number): number {
   return Math.floor(canvasHeight - GLOW_BLOCK_SIZE);
 }
-const BANK_SPRITE_SRC = "/bank.png";
-const BANK_SOURCE_X = 193;
-const BANK_SOURCE_Y = 286;
-const BANK_SOURCE_WIDTH = 868;
-const BANK_SOURCE_HEIGHT = 673;
 const NY_BACKGROUND_PARALLAX = 0.22;
-
-export const BANK_DRAW_WIDTH = 216;
-export const BANK_DRAW_HEIGHT = Math.round(BANK_DRAW_WIDTH * (BANK_SOURCE_HEIGHT / BANK_SOURCE_WIDTH));
 
 type DinoFrameBounds = {
   x: number;
@@ -404,26 +396,6 @@ export function drawPlatformSet(
       drawGlowBlock(ctx, tileX, topY);
     }
   }
-}
-
-export function drawBank(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  const sprite = getSprite(BANK_SPRITE_SRC);
-  if (!sprite) return;
-
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(
-    sprite,
-    BANK_SOURCE_X,
-    BANK_SOURCE_Y,
-    BANK_SOURCE_WIDTH,
-    BANK_SOURCE_HEIGHT,
-    x,
-    y,
-    BANK_DRAW_WIDTH,
-    BANK_DRAW_HEIGHT,
-  );
-  ctx.restore();
 }
 
 export function drawCloud(
