@@ -9,7 +9,6 @@ import {
   BANK_PENALTY_MULTIPLIER,
   JUMP_COST_UNITS,
   NEXT_DEV,
-  PLAY_PRICE_UNITS,
   VOUCHER_CHECKPOINT_JUMPS,
 } from "@/lib/x402/config";
 import { signGameVoucher, verifyGameVoucher } from "@/lib/x402/channel";
@@ -28,9 +27,7 @@ export function Game({ session, onPlayAgain }: GameProps) {
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
 
-  const balanceRef = useRef(
-    session.roundBudget < PLAY_PRICE_UNITS ? session.roundBudget : PLAY_PRICE_UNITS,
-  );
+  const balanceRef = useRef(session.roundBudget);
   const cumulativeRef = useRef(session.chargedCumulativeAmount);
   const roundSpentRef = useRef(0n);
   const jumpCountRef = useRef(0);

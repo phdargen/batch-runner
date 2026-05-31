@@ -22,7 +22,13 @@ if (PLAY_PRICE_UNITS % JUMP_COST_UNITS !== 0n) {
 }
 
 export const JUMPS_PER_PLAY = Number(PLAY_PRICE_UNITS / JUMP_COST_UNITS);
+export const DEV_ROUND_BUDGET_MULTIPLIER = 10;
+export const DEV_ROUND_BUDGET_UNITS = PLAY_PRICE_UNITS * BigInt(DEV_ROUND_BUDGET_MULTIPLIER);
 export const VOUCHER_CHECKPOINT_JUMPS = 5;
+
+export function roundBudgetUnits(): bigint {
+  return NEXT_DEV ? DEV_ROUND_BUDGET_UNITS : PLAY_PRICE_UNITS;
+}
 
 export const WITHDRAW_DELAY = 900; // 15 minutes (minimum)
 export const STORAGE_DIR = process.env.STORAGE_DIR || "/tmp/x402-batch-runner-channels";

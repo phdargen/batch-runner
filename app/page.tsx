@@ -6,7 +6,7 @@ import { DepositFlow, type SessionInfo } from "@/components/DepositFlow";
 import { Game } from "@/components/Game";
 import { Leaderboard } from "@/components/Leaderboard";
 import { buildGameChannelConfig } from "@/lib/x402/channel";
-import { NEXT_DEV, PLAY_PRICE_UNITS, RECEIVER_ADDRESS } from "@/lib/x402/config";
+import { NEXT_DEV, RECEIVER_ADDRESS, roundBudgetUnits } from "@/lib/x402/config";
 import { LocalStorageChannelStorage } from "@/lib/x402/browserStorage";
 import {
   createStoredSessionKey,
@@ -119,9 +119,9 @@ function createDevSession(): SessionInfo {
     playerAddress: stored.playerAddress,
     channelId,
     channelConfig: config,
-    channelBalance: PLAY_PRICE_UNITS,
+    channelBalance: roundBudgetUnits(),
     chargedCumulativeAmount: 0n,
-    roundBudget: PLAY_PRICE_UNITS,
+    roundBudget: roundBudgetUnits(),
     storage: new LocalStorageChannelStorage(),
   };
 }

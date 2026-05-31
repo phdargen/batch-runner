@@ -18,6 +18,7 @@ import {
   NEXT_DEV,
   PLAY_PRICE,
   PLAY_PRICE_UNITS,
+  roundBudgetUnits,
   RECEIVER_ADDRESS,
 } from "@/lib/x402/config";
 import { buildGameChannelConfig } from "@/lib/x402/channel";
@@ -156,7 +157,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
       channelConfig: snapshot?.channelConfig ?? null,
       channelBalance: snapshot?.balance ?? PLAY_PRICE_UNITS,
       chargedCumulativeAmount: snapshot?.chargedCumulativeAmount ?? 0n,
-      roundBudget: PLAY_PRICE_UNITS,
+      roundBudget: roundBudgetUnits(),
       storage,
     });
   };
@@ -218,12 +219,13 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
   ): Promise<void> {
     if (NEXT_DEV) {
       const debugChannel = getDebugChannel(session);
+      const devBudget = roundBudgetUnits();
       setSnapshot({
         channelId: debugChannel?.channelId ?? null,
         channelConfig: debugChannel?.config ?? null,
-        balance: PLAY_PRICE_UNITS,
+        balance: devBudget,
         chargedCumulativeAmount: 0n,
-        availableBalance: PLAY_PRICE_UNITS,
+        availableBalance: devBudget,
       });
       return;
     }

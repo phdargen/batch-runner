@@ -339,6 +339,46 @@ export function drawNyFloor(
   return true;
 }
 
+const PLATFORM_SPRITE_SRC = "/platform.png";
+const PLATFORM_SOURCE_X = 350;
+const PLATFORM_SOURCE_Y = 357;
+const PLATFORM_SOURCE_WIDTH = 554;
+const PLATFORM_SOURCE_HEIGHT = 493;
+
+export const PLATFORM_DRAW_WIDTH = 50;
+export const PLATFORM_DRAW_HEIGHT = Math.round(
+  PLATFORM_DRAW_WIDTH * (PLATFORM_SOURCE_HEIGHT / PLATFORM_SOURCE_WIDTH),
+);
+
+export function drawPlatformSet(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  groundY: number,
+  elev: number,
+  tileCount: number,
+) {
+  const sprite = getSprite(PLATFORM_SPRITE_SRC);
+  if (!sprite) return;
+
+  const topY = groundY - elev;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  for (let i = 0; i < tileCount; i++) {
+    ctx.drawImage(
+      sprite,
+      PLATFORM_SOURCE_X,
+      PLATFORM_SOURCE_Y,
+      PLATFORM_SOURCE_WIDTH,
+      PLATFORM_SOURCE_HEIGHT,
+      x + i * PLATFORM_DRAW_WIDTH,
+      topY,
+      PLATFORM_DRAW_WIDTH,
+      PLATFORM_DRAW_HEIGHT,
+    );
+  }
+  ctx.restore();
+}
+
 export function drawBank(ctx: CanvasRenderingContext2D, x: number, y: number) {
   const sprite = getSprite(BANK_SPRITE_SRC);
   if (!sprite) return;

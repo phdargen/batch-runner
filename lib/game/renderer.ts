@@ -1,6 +1,6 @@
 import type { GameState, VisualZone } from "./types";
 import { GROUND_Y, DINO_WIDTH, DINO_HEIGHT } from "./types";
-import { drawDino, drawBank, drawNyBackground, drawNyFloor } from "./sprites";
+import { drawDino, drawBank, drawPlatformSet, drawNyBackground, drawNyFloor } from "./sprites";
 
 function getVisualZone(distance: number): VisualZone {
   if (distance < 2000) return "calm";
@@ -131,6 +131,12 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     }
   });
 
+  for (const obs of state.obstacles) {
+    if (obs.type === "bank") {
+      drawBank(ctx, obs.x, groundY - obs.height);
+    }
+  }
+
   if (floorGaps.length > 0) {
     ctx.fillStyle = getPitVoidGradient(ctx, groundY, height);
     for (const gap of floorGaps) {
@@ -138,11 +144,9 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     }
   }
 
-  // Obstacles
-  for (const obs of state.obstacles) {
-    if (obs.type === "bank") {
-      drawBank(ctx, obs.x, groundY - obs.height);
-    }
+  // Floating platforms
+  for (const platform of state.platforms) {
+    drawPlatformSet(ctx, platform.x, groundY, platform.elev, platform.tileCount);
   }
 
   // Dino

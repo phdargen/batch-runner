@@ -1,5 +1,13 @@
 export type ObstacleType = "bank" | "gap";
 
+export type Platform = {
+  x: number;
+  /** Walkable surface height in pixels above ground. */
+  elev: number;
+  tileCount: number;
+  width: number;
+};
+
 export type Obstacle = {
   type: ObstacleType;
   x: number;
@@ -42,6 +50,7 @@ export type GameState = {
   dinoVelocity: number;
   isJumping: boolean;
   obstacles: Obstacle[];
+  platforms: Platform[];
   particles: Particle[];
   clouds: Cloud[];
   groundOffset: number;
@@ -53,8 +62,12 @@ export type GameState = {
   screenShake: number;
   lastObstacleDistance: number;
   lastObstacleType: ObstacleType | null;
+  lastPlatformDistance: number;
   gapForbiddenSlots: number;
+  /** Run distance before another gap may spawn (2× last gap width safe zone). */
+  nextGapAllowedDistance: number;
   bankForbiddenSlots: number;
+  platformForbiddenSlots: number;
   runFrame: number;
   runFrameTimer: number;
   dinoReaction: DinoReaction;
@@ -73,8 +86,25 @@ export const OBSTACLE_MIN_GAP = 300;
 export const JUMP_COOLDOWN_MS = 320;
 export const BANK_PENALTY_JUMPS = 5;
 export const BANK_TOP_BOUNCE_VELOCITY = -9;
-export const BANK_TOP_LANDING_TOLERANCE = 14;
+export const BANK_TOP_LANDING_TOLERANCE = 16;
+/** Swept horizontal look-ahead for pre-scroll roof bounce checks. */
+export const BANK_ROOF_LEADING_MARGIN = 12;
+/** Width of the bank's left edge where descent-from-above gets extra forgiveness. */
+export const BANK_LEADING_EDGE_WIDTH = 40;
+/** Feet must be at least this far above ground to treat bank contact as a roof bounce. */
+export const BANK_ROOF_MIN_AIRBORNE_PX = 12;
+export const PLATFORM_BOTTOM_BOUNCE_VELOCITY = 9;
+export const PLATFORM_BOTTOM_HIT_TOLERANCE = 14;
 export const JUMP_BUFFER_MS = 120;
 export const MAX_FALL_VELOCITY = 18;
 export const GAP_FALL_MARGIN = 8;
 export const HAZARD_GAP_BONUS = 80;
+/** Max height reachable from a single ground jump (px above ground). */
+export const MAX_GROUND_JUMP_HEIGHT = (JUMP_VELOCITY * JUMP_VELOCITY) / (2 * GRAVITY);
+/** Ground-reachable tiers (single jump from floor). */
+export const PLATFORM_ELEV_LEVELS = [115, 138, 158] as const;
+/** Above MAX_GROUND_JUMP_HEIGHT — needs a platform hop or mid-air double jump. */
+export const PLATFORM_ELEV_LEVEL_HIGH = 178;
+export const PLATFORM_HIGH_SPAWN_CHANCE = 0.25;
+export const PLATFORM_MIN_GAP = 380;
+export const PLATFORM_TOP_LANDING_TOLERANCE = 22;

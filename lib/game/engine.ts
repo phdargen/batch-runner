@@ -1,5 +1,10 @@
-import type { GameState, Obstacle, Cloud, ObstacleType, GamePhase } from "./types";
-import { BANK_DRAW_WIDTH, BANK_DRAW_HEIGHT } from "./sprites";
+import type { GameState, Obstacle, Platform, Cloud, ObstacleType, GamePhase } from "./types";
+import {
+  BANK_DRAW_WIDTH,
+  BANK_DRAW_HEIGHT,
+  PLATFORM_DRAW_WIDTH,
+  PLATFORM_DRAW_HEIGHT,
+} from "./sprites";
 import {
   GROUND_Y,
   DINO_WIDTH,
@@ -14,9 +19,19 @@ import {
   BANK_PENALTY_JUMPS,
   BANK_TOP_BOUNCE_VELOCITY,
   BANK_TOP_LANDING_TOLERANCE,
+  BANK_ROOF_LEADING_MARGIN,
+  BANK_LEADING_EDGE_WIDTH,
+  BANK_ROOF_MIN_AIRBORNE_PX,
   MAX_FALL_VELOCITY,
   GAP_FALL_MARGIN,
   HAZARD_GAP_BONUS,
+  PLATFORM_ELEV_LEVELS,
+  PLATFORM_ELEV_LEVEL_HIGH,
+  PLATFORM_HIGH_SPAWN_CHANCE,
+  PLATFORM_MIN_GAP,
+  PLATFORM_TOP_LANDING_TOLERANCE,
+  PLATFORM_BOTTOM_BOUNCE_VELOCITY,
+  PLATFORM_BOTTOM_HIT_TOLERANCE,
 } from "./types";
 
 export function createInitialState(): GameState {
@@ -28,6 +43,7 @@ export function createInitialState(): GameState {
     dinoVelocity: 0,
     isJumping: false,
     obstacles: [],
+    platforms: [],
     particles: [],
     clouds: initClouds(),
     groundOffset: 0,
@@ -38,8 +54,11 @@ export function createInitialState(): GameState {
     screenShake: 0,
     lastObstacleDistance: 0,
     lastObstacleType: null,
+    lastPlatformDistance: 0,
     gapForbiddenSlots: 0,
+    nextGapAllowedDistance: 0,
     bankForbiddenSlots: 0,
+    platformForbiddenSlots: 0,
     runFrame: 0,
     runFrameTimer: 0,
     dinoReaction: "none",
@@ -118,6 +137,7 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
     state.speed = Math.min(MAX_SPEED, state.speed + SPEED_INCREMENT * dt);
     state.distance += state.speed * (dt / 16);
     maybeSpawnObstacle(state, callbacks);
+    maybeSpawnPlatform(state, callbacks);
     state.groundOffset += state.speed;
   }
 
@@ -131,14 +151,35 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
   if (state.isJumping || state.phase === "falling") {
     state.dinoVelocity += GRAVITY;
     if (state.dinoVelocity > MAX_FALL_VELOCITY) state.dinoVelocity = MAX_FALL_VELOCITY;
+    const prevDinoY = state.dinoY;
     state.dinoY += state.dinoVelocity;
-    const descendingOrGrounded = state.dinoVelocity >= 0;
-    const landed =
-      state.phase !== "falling" && state.dinoY >= 0 && descendingOrGrounded;
-    if (landed) {
-      state.dinoY = 0;
-      state.dinoVelocity = 0;
-      state.isJumping = false;
+
+    if (
+      state.phase === "running" &&
+      state.dinoVelocity >= 0 &&
+      tryLandOnPlatform(state, callbacks, prevDinoY)
+    ) {
+      // Snapped onto a platform top.
+    } else if (
+      state.phase === "running" &&
+      state.dinoVelocity >= 0 &&
+      tryBounceOffBankTop(state, callbacks, prevDinoY)
+    ) {
+      // Bounced off a bank roof.
+    } else if (
+      state.phase === "running" &&
+      tryBounceOffPlatformBottom(state, callbacks, prevDinoY)
+    ) {
+      // Head hit a platform underside — bounced downward.
+    } else {
+      const descendingOrGrounded = state.dinoVelocity >= 0;
+      const landed =
+        state.phase !== "falling" && state.dinoY >= 0 && descendingOrGrounded;
+      if (landed) {
+        state.dinoY = 0;
+        state.dinoVelocity = 0;
+        state.isJumping = false;
+      }
     }
   }
 
@@ -148,22 +189,27 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
     advanceRunFrame(state, dt);
   }
 
-  // Move obstacles (frozen horizontally while falling straight down)
+  // Move obstacles and platforms (frozen horizontally while falling straight down)
   if (state.phase === "running") {
     for (const obs of state.obstacles) {
       obs.x -= state.speed;
+    }
+    for (const platform of state.platforms) {
+      platform.x -= state.speed;
     }
   }
 
   // Collision detection
   checkCollisions(state, callbacks);
+  checkPlatformSupport(state, callbacks);
 
   if (state.phase === "falling") {
     finalizeGapFallIfOffScreen(state, callbacks);
   }
 
-  // Cull offscreen obstacles
+  // Cull offscreen obstacles and platforms
   state.obstacles = state.obstacles.filter((o) => o.x + o.width > -50);
+  state.platforms = state.platforms.filter((p) => p.x + p.width > -50);
 
   // Update particles and clouds
   updateParticles(state);
@@ -201,7 +247,8 @@ function maybeSpawnObstacle(state: GameState, callbacks: EngineCallbacks) {
   }
   if (state.distance - state.lastObstacleDistance < gap) return;
 
-  const gapsForbidden = state.gapForbiddenSlots > 0;
+  const gapsForbidden =
+    state.distance < state.nextGapAllowedDistance || state.gapForbiddenSlots > 0;
   const banksForbidden = state.bankForbiddenSlots > 0;
   if (state.gapForbiddenSlots > 0) {
     state.gapForbiddenSlots--;
@@ -225,22 +272,75 @@ function maybeSpawnObstacle(state: GameState, callbacks: EngineCallbacks) {
     passed: false,
   };
 
+  if (type === "bank" && overlapsAnyPlatform(obs.x, obs.width, state.platforms)) {
+    return;
+  }
+  if (type === "bank" && overlapsAnyGap(obs.x, obs.width, state.obstacles)) {
+    return;
+  }
+  if (type === "gap" && overlapsAnyBank(obs.x, obs.width, state.obstacles)) {
+    return;
+  }
+
   state.obstacles.push(obs);
   state.lastObstacleDistance = state.distance;
   state.lastObstacleType = type;
 
   if (type === "gap") {
+    const gapSafeZone = state.distance + obs.width * 2;
+    state.nextGapAllowedDistance = Math.max(state.nextGapAllowedDistance, gapSafeZone);
     state.bankForbiddenSlots = Math.max(state.bankForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
+    state.platformForbiddenSlots = Math.max(state.platformForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
   } else if (type === "bank") {
     state.gapForbiddenSlots = Math.max(state.gapForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
+    state.platformForbiddenSlots = Math.max(state.platformForbiddenSlots, BANK_GAP_NEAR_SPAWN_SLOTS);
   }
 }
 
-const GAP_SPAWN_CHANCE = 0.38;
-const BANK_SPAWN_CHANCE = 0.12;
-const EARLY_BANK_SPAWN_CHANCE = 0.1;
+const PLATFORM_SPAWN_CHANCE = 0.22;
+const PLATFORM_START_DISTANCE = 900;
+
+function pickPlatformElev(): number {
+  if (Math.random() < PLATFORM_HIGH_SPAWN_CHANCE) return PLATFORM_ELEV_LEVEL_HIGH;
+  return PLATFORM_ELEV_LEVELS[Math.floor(Math.random() * PLATFORM_ELEV_LEVELS.length)];
+}
+
+function maybeSpawnPlatform(state: GameState, callbacks: EngineCallbacks) {
+  if (state.distance < PLATFORM_START_DISTANCE) return;
+  if (state.platformForbiddenSlots > 0) {
+    state.platformForbiddenSlots--;
+    return;
+  }
+  if (state.distance - state.lastPlatformDistance < PLATFORM_MIN_GAP) return;
+  if (Math.random() >= PLATFORM_SPAWN_CHANCE) return;
+
+  const tileCount = 1 + Math.floor(Math.random() * 4);
+  const width = tileCount * PLATFORM_DRAW_WIDTH;
+  const x = callbacks.canvasWidth + 20;
+  const elev = pickPlatformElev();
+
+  if (overlapsAnyBank(x, width, state.obstacles)) return;
+
+  const platform: Platform = { x, elev, tileCount, width };
+  state.platforms.push(platform);
+  state.lastPlatformDistance = state.distance;
+}
+
+const GAP_SPAWN_CHANCE = 0.3;
+const BANK_SPAWN_CHANCE = 0.48;
+/** Share of spawn rolls that place no hazard. */
+const OBSTACLE_EMPTY_WEIGHT = 0.22;
+const EARLY_BANK_SPAWN_CHANCE = 0.42;
 const EARLY_GAME_DISTANCE = 700;
-const BANK_GAP_NEAR_SPAWN_SLOTS = 2;
+const BANK_GAP_NEAR_SPAWN_SLOTS = 1;
+
+/** Gap width = base * multiplier; higher multipliers are rarer. */
+const GAP_WIDTH_TIERS = [
+  { mult: 1, weight: 54 },
+  { mult: 2, weight: 28 },
+  { mult: 3, weight: 12 },
+  { mult: 4, weight: 6 },
+] as const;
 
 function chooseObstacleType(
   distance: number,
@@ -252,16 +352,58 @@ function chooseObstacleType(
     return null;
   }
 
-  if (!gapsForbidden && Math.random() < GAP_SPAWN_CHANCE) return "gap";
-  if (!banksForbidden && Math.random() < BANK_SPAWN_CHANCE) return "bank";
+  const canGap = !gapsForbidden;
+  const canBank = !banksForbidden;
+  if (!canGap && !canBank) return null;
+
+  const gapWeight = canGap ? GAP_SPAWN_CHANCE : 0;
+  const bankWeight = canBank ? BANK_SPAWN_CHANCE : 0;
+  const emptyWeight = OBSTACLE_EMPTY_WEIGHT;
+  const total = gapWeight + bankWeight + emptyWeight;
+  if (total <= 0) return null;
+
+  const roll = Math.random() * total;
+  if (roll < gapWeight) return "gap";
+  if (roll < gapWeight + bankWeight) return "bank";
   return null;
+}
+
+function rollGapWidthMultiplier(): number {
+  const totalWeight = GAP_WIDTH_TIERS.reduce((sum, tier) => sum + tier.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const tier of GAP_WIDTH_TIERS) {
+    roll -= tier.weight;
+    if (roll <= 0) return tier.mult;
+  }
+  return 1;
 }
 
 function getObstacleWidth(type: ObstacleType, distance: number): number {
   if (type === "bank") return BANK_DRAW_WIDTH;
 
   const difficultyBonus = Math.min(50, distance / 180);
-  return 70 + Math.random() * 35 + difficultyBonus;
+  const baseWidth = 70 + Math.random() * 35 + difficultyBonus;
+  return baseWidth * rollGapWidthMultiplier();
+}
+
+function overlapsHorizontally(aX: number, aW: number, bX: number, bW: number): boolean {
+  return aX < bX + bW && aX + aW > bX;
+}
+
+function overlapsAnyBank(x: number, width: number, obstacles: Obstacle[]): boolean {
+  return obstacles.some(
+    (obs) => obs.type === "bank" && overlapsHorizontally(x, width, obs.x, obs.width),
+  );
+}
+
+function overlapsAnyGap(x: number, width: number, obstacles: Obstacle[]): boolean {
+  return obstacles.some(
+    (obs) => obs.type === "gap" && overlapsHorizontally(x, width, obs.x, obs.width),
+  );
+}
+
+function overlapsAnyPlatform(x: number, width: number, platforms: Platform[]): boolean {
+  return platforms.some((platform) => overlapsHorizontally(x, width, platform.x, platform.width));
 }
 
 function getObstacleGap(distance: number): number {
@@ -309,41 +451,429 @@ function checkCollisions(state: GameState, callbacks: EngineCallbacks) {
       h: obs.height - 4,
     };
 
-    if (!rectsOverlap(dinoRect, obsRect)) continue;
-
-    obs.passed = true;
+    const dino = getDinoHitbox(state, groundY);
+    const dinoHitbox = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
+    if (!rectsOverlap(dinoHitbox, obsRect)) continue;
 
     const bankTopY = obsRect.y;
-    const dinoFeetY = dinoRect.y + dinoRect.h;
+    const bankBottomY = bankTopY + obsRect.h;
+    const prevFeetY = state.isJumping ? groundY + state.dinoY - state.dinoVelocity : dino.feetY;
 
-    if (isLandingOnBankTop(state, dinoFeetY, bankTopY)) {
-      state.dinoY += bankTopY - dinoFeetY;
-      state.dinoVelocity = BANK_TOP_BOUNCE_VELOCITY;
-      state.isJumping = true;
-      spawnJumpParticles(state, dinoX + DINO_WIDTH / 2, bankTopY);
+    // Late jump: still rising into the face or roof lip — always a hit.
+    if (
+      state.isJumping &&
+      state.dinoVelocity < 0 &&
+      dino.feetY >= bankTopY - BANK_TOP_LANDING_TOLERANCE
+    ) {
+      obs.passed = true;
+      state.bankPenaltyJumpsLeft = BANK_PENALTY_JUMPS;
+      state.dinoReaction = "obstacle-hit";
+      state.dinoReactionTimerMs = 450;
+      spawnHitParticles(state, obs.x, groundY - obs.height / 2, "#00d68f");
       continue;
     }
 
+    // High arc over the roof — not a hit yet.
+    if (state.isJumping && state.dinoVelocity < 0 && dino.feetY < bankTopY - 4) continue;
+
+    if (
+      shouldBounceOffBankRoof(
+        prevFeetY,
+        dino.feetY,
+        bankTopY,
+        bankBottomY,
+        state.isJumping,
+        state.dinoVelocity >= 0,
+        groundY,
+        dino.x,
+        dino.x + dino.w,
+        obs,
+      )
+    ) {
+      applyBankRoofBounce(state, obs, groundY, dino, bankTopY);
+      continue;
+    }
+
+    obs.passed = true;
     state.bankPenaltyJumpsLeft = BANK_PENALTY_JUMPS;
     state.dinoReaction = "obstacle-hit";
     state.dinoReactionTimerMs = 450;
     spawnHitParticles(state, obs.x, groundY - obs.height / 2, "#00d68f");
   }
+
 }
 
-/** Feet crossing down onto the bank roof while airborne — not a side hit at ground level. */
-function isLandingOnBankTop(
-  state: GameState,
-  dinoFeetY: number,
+const DINO_HITBOX_INSET_X = 6;
+const DINO_HITBOX_INSET_Y = 4;
+
+function getDinoHitbox(state: GameState, groundY: number) {
+  const dinoX = 80;
+  const dinoScreenY = groundY - DINO_HEIGHT + state.dinoY;
+  return {
+    x: dinoX + DINO_HITBOX_INSET_X,
+    y: dinoScreenY + DINO_HITBOX_INSET_Y,
+    w: DINO_WIDTH - DINO_HITBOX_INSET_X * 2,
+    h: DINO_HEIGHT - DINO_HITBOX_INSET_Y * 2,
+    feetY: dinoScreenY + DINO_HEIGHT,
+    centerX: dinoX + DINO_WIDTH / 2,
+  };
+}
+
+function dinoOverlapsPlatformHorizontally(
+  dinoLeft: number,
+  dinoRight: number,
+  platform: Platform,
+): boolean {
+  return dinoRight > platform.x + 4 && dinoLeft < platform.x + platform.width - 4;
+}
+
+/** Horizontal overlap including where the platform was one tick ago (scrolls left). */
+function dinoOverlapsPlatformHorizontallySwept(
+  dinoLeft: number,
+  dinoRight: number,
+  platform: Platform,
+  sweepDistance: number,
+): boolean {
+  if (dinoOverlapsPlatformHorizontally(dinoLeft, dinoRight, platform)) return true;
+  if (sweepDistance <= 0) return false;
+  return dinoOverlapsPlatformHorizontally(dinoLeft, dinoRight, {
+    ...platform,
+    x: platform.x + sweepDistance,
+  });
+}
+
+function dinoOverlapsBankHorizontallySwept(
+  dinoLeft: number,
+  dinoRight: number,
+  bank: Obstacle,
+  sweepDistance: number,
+  leadingMargin = 0,
+): boolean {
+  const bankLeft = bank.x + 4 - leadingMargin;
+  const bankRight = bank.x + bank.width - 4;
+  if (dinoRight > bankLeft && dinoLeft < bankRight) return true;
+  if (sweepDistance <= 0) return false;
+  return (
+    dinoRight > bankLeft + sweepDistance && dinoLeft < bankRight + sweepDistance
+  );
+}
+
+function isOnBankLeadingEdge(
+  dinoLeft: number,
+  dinoRight: number,
+  bank: Obstacle,
+): boolean {
+  const bankLeft = bank.x + 4;
+  return dinoRight > bankLeft && dinoLeft < bankLeft + BANK_LEADING_EDGE_WIDTH;
+}
+
+function shouldBounceOffBankRoof(
+  prevFeetY: number,
+  feetY: number,
   bankTopY: number,
+  bankBottomY: number,
+  isJumping: boolean,
+  isDescending: boolean,
+  groundY: number,
+  dinoLeft: number,
+  dinoRight: number,
+  bank: Obstacle,
+): boolean {
+  if (!isJumping || !isDescending) return false;
+
+  // Ground-level run into the face — never auto-bounce.
+  if (feetY >= groundY - BANK_ROOF_MIN_AIRBORNE_PX) return false;
+
+  if (
+    shouldLandOnPlatformTop(
+      prevFeetY,
+      feetY,
+      bankTopY,
+      bankBottomY,
+      BANK_TOP_LANDING_TOLERANCE,
+    ) &&
+    prevFeetY <= bankTopY + BANK_TOP_LANDING_TOLERANCE
+  ) {
+    return true;
+  }
+
+  // Left-edge only: descending into the roof lip, feet near the surface.
+  if (!isOnBankLeadingEdge(dinoLeft, dinoRight, bank)) return false;
+
+  return (
+    feetY >= bankTopY - BANK_TOP_LANDING_TOLERANCE * 2 &&
+    feetY <= bankTopY + BANK_TOP_LANDING_TOLERANCE &&
+    prevFeetY <= bankTopY + BANK_TOP_LANDING_TOLERANCE &&
+    feetY >= prevFeetY
+  );
+}
+
+function applyBankRoofBounce(
+  state: GameState,
+  obs: Obstacle,
+  groundY: number,
+  dino: ReturnType<typeof getDinoHitbox>,
+  bankTopY: number,
+) {
+  obs.passed = true;
+  state.dinoY += bankTopY - dino.feetY;
+  state.dinoVelocity = BANK_TOP_BOUNCE_VELOCITY;
+  state.isJumping = true;
+  spawnJumpParticles(state, dino.centerX, bankTopY);
+}
+
+function tryBounceOffBankTop(
+  state: GameState,
+  callbacks: EngineCallbacks,
+  prevDinoY: number,
 ): boolean {
   if (!state.isJumping || state.dinoVelocity < 0) return false;
 
-  const prevFeetY = dinoFeetY - state.dinoVelocity;
-  return (
-    prevFeetY <= bankTopY + 4 &&
-    dinoFeetY >= bankTopY - BANK_TOP_LANDING_TOLERANCE
-  );
+  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const prevFeetY = groundY + prevDinoY;
+  const feetY = groundY + state.dinoY;
+  const dino = getDinoHitbox(state, groundY);
+  const dinoLeft = dino.x;
+  const dinoRight = dino.x + dino.w;
+
+  for (const obs of state.obstacles) {
+    if (obs.passed || obs.type !== "bank") continue;
+    if (
+      !dinoOverlapsBankHorizontallySwept(
+        dinoLeft,
+        dinoRight,
+        obs,
+        state.speed,
+        BANK_ROOF_LEADING_MARGIN,
+      )
+    ) {
+      continue;
+    }
+
+    const bankTopY = groundY - obs.height + 4;
+    const bankBottomY = bankTopY + obs.height - 4;
+    if (
+      !shouldBounceOffBankRoof(
+        prevFeetY,
+        feetY,
+        bankTopY,
+        bankBottomY,
+        true,
+        true,
+        groundY,
+        dinoLeft,
+        dinoRight,
+        obs,
+      )
+    ) {
+      continue;
+    }
+
+    applyBankRoofBounce(state, obs, groundY, dino, bankTopY);
+    return true;
+  }
+
+  return false;
+}
+
+function tryLandOnPlatform(
+  state: GameState,
+  callbacks: EngineCallbacks,
+  prevDinoY: number,
+): boolean {
+  if (!state.isJumping || state.dinoVelocity < 0) return false;
+
+  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const prevFeetY = groundY + prevDinoY;
+  const feetY = groundY + state.dinoY;
+  const dino = getDinoHitbox(state, groundY);
+  const dinoLeft = dino.x;
+  const dinoRight = dino.x + dino.w;
+
+  let bestPlatform: Platform | null = null;
+  let bestElev = -Infinity;
+
+  for (const platform of state.platforms) {
+    if (
+      !dinoOverlapsPlatformHorizontallySwept(
+        dinoLeft,
+        dinoRight,
+        platform,
+        state.speed,
+      )
+    ) {
+      continue;
+    }
+
+    const surfaceTopY = groundY - platform.elev;
+    const surfaceBottomY = surfaceTopY + PLATFORM_DRAW_HEIGHT;
+    if (
+      !shouldLandOnPlatformTop(
+        prevFeetY,
+        feetY,
+        surfaceTopY,
+        surfaceBottomY,
+        PLATFORM_TOP_LANDING_TOLERANCE,
+      )
+    ) {
+      continue;
+    }
+
+    if (platform.elev > bestElev) {
+      bestElev = platform.elev;
+      bestPlatform = platform;
+    }
+  }
+
+  if (!bestPlatform) return false;
+
+  state.dinoY = -bestPlatform.elev;
+  state.dinoVelocity = 0;
+  state.isJumping = false;
+  spawnJumpParticles(state, dino.centerX, groundY - bestPlatform.elev);
+  return true;
+}
+
+function tryBounceOffPlatformBottom(
+  state: GameState,
+  callbacks: EngineCallbacks,
+  prevDinoY: number,
+): boolean {
+  if (!state.isJumping) return false;
+
+  const movingUp = state.dinoY < prevDinoY;
+  if (!movingUp) return false;
+
+  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const prevDinoScreenY = groundY - DINO_HEIGHT + prevDinoY;
+  const prevHeadY = prevDinoScreenY + DINO_HITBOX_INSET_Y;
+  const prevFeetY = prevDinoScreenY + DINO_HEIGHT;
+  const dino = getDinoHitbox(state, groundY);
+  const headY = dino.y;
+  const dinoHitbox = { x: dino.x, y: dino.y, w: dino.w, h: dino.h };
+  const dinoLeft = dino.x;
+  const dinoRight = dino.x + dino.w;
+
+  let bestPlatform: Platform | null = null;
+  let bestBottomY = -Infinity;
+
+  for (const platform of state.platforms) {
+    if (!dinoOverlapsPlatformHorizontally(dinoLeft, dinoRight, platform)) continue;
+
+    const surfaceTopY = groundY - platform.elev;
+    const surfaceBottomY = surfaceTopY + PLATFORM_DRAW_HEIGHT;
+    const platformRect = {
+      x: platform.x + 4,
+      y: surfaceTopY,
+      w: platform.width - 8,
+      h: PLATFORM_DRAW_HEIGHT,
+    };
+
+    if (!rectsOverlap(dinoHitbox, platformRect)) continue;
+
+    // Already jumped over the walkable top — not an underside hit.
+    if (dino.feetY < surfaceTopY - 4) continue;
+
+    // Approaching from below: feet stay at or under the walkable surface (larger screen Y).
+    const fromBelow =
+      prevFeetY >= surfaceTopY - PLATFORM_TOP_LANDING_TOLERANCE ||
+      dino.feetY >= surfaceTopY - PLATFORM_TOP_LANDING_TOLERANCE;
+    if (!fromBelow) continue;
+
+    const crossedBottom = crossedUpIntoBottom(
+      prevHeadY,
+      headY,
+      surfaceBottomY,
+      PLATFORM_BOTTOM_HIT_TOLERANCE,
+    );
+    const insidePlatformBody =
+      headY >= surfaceTopY - PLATFORM_BOTTOM_HIT_TOLERANCE &&
+      headY <= surfaceBottomY + PLATFORM_BOTTOM_HIT_TOLERANCE;
+    const passedThroughTop =
+      prevHeadY >= surfaceTopY - PLATFORM_BOTTOM_HIT_TOLERANCE &&
+      headY < surfaceTopY;
+
+    if (!crossedBottom && !insidePlatformBody && !passedThroughTop) continue;
+
+    if (surfaceBottomY > bestBottomY) {
+      bestBottomY = surfaceBottomY;
+      bestPlatform = platform;
+    }
+  }
+
+  if (!bestPlatform) return false;
+
+  state.dinoY = bestBottomY - DINO_HITBOX_INSET_Y - (groundY - DINO_HEIGHT);
+  state.dinoVelocity = PLATFORM_BOTTOM_BOUNCE_VELOCITY;
+  state.isJumping = true;
+  spawnHitParticles(state, dino.centerX, bestBottomY, "#457EFF");
+  return true;
+}
+
+function checkPlatformSupport(state: GameState, callbacks: EngineCallbacks) {
+  if (state.phase !== "running" || state.isJumping || state.dinoY >= 0) return;
+
+  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const dino = getDinoHitbox(state, groundY);
+  const dinoLeft = dino.x;
+  const dinoRight = dino.x + dino.w;
+  const elevAboveGround = -state.dinoY;
+
+  const supported = state.platforms.some((platform) => {
+    const onPlatform = dinoOverlapsPlatformHorizontally(dinoLeft, dinoRight, platform);
+    const atRightHeight = Math.abs(elevAboveGround - platform.elev) < 12;
+    return onPlatform && atRightHeight;
+  });
+
+  if (!supported) {
+    state.isJumping = true;
+    state.dinoVelocity = Math.max(state.dinoVelocity, 1);
+  }
+}
+
+function crossedDownOntoSurface(
+  prevFeetY: number,
+  feetY: number,
+  surfaceTopY: number,
+  tolerance: number,
+): boolean {
+  return prevFeetY <= surfaceTopY + 4 && feetY >= surfaceTopY - tolerance;
+}
+
+function shouldLandOnPlatformTop(
+  prevFeetY: number,
+  feetY: number,
+  surfaceTopY: number,
+  surfaceBottomY: number,
+  tolerance: number,
+): boolean {
+  if (feetY < prevFeetY) return false;
+
+  if (crossedDownOntoSurface(prevFeetY, feetY, surfaceTopY, tolerance)) {
+    return true;
+  }
+
+  // Feet crossed the top before the platform scrolled under the dino, or we
+  // partially tunnelled through the platform body — snap to the walkable top.
+  if (feetY >= surfaceTopY - tolerance && prevFeetY <= surfaceTopY + tolerance) {
+    return true;
+  }
+
+  // Full platform thickness crossed in one tick while descending from above.
+  if (prevFeetY <= surfaceBottomY + tolerance && feetY >= surfaceTopY - tolerance) {
+    return true;
+  }
+
+  return false;
+}
+
+function crossedUpIntoBottom(
+  prevHeadY: number,
+  headY: number,
+  surfaceBottomY: number,
+  tolerance: number,
+): boolean {
+  return prevHeadY >= surfaceBottomY - 4 && headY <= surfaceBottomY + tolerance;
 }
 
 /** Foot center past pit left edge plus margin, only if feet still overlap the pit. */
