@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createInitialState, tick, tryJump } from "@/lib/game/engine";
 import type { EngineCallbacks } from "@/lib/game/engine";
 import { render } from "@/lib/game/renderer";
-import type { GameState } from "@/lib/game/types";
+import { JUMP_BUFFER_MS, type GameState } from "@/lib/game/types";
 import {
   BANK_PENALTY_MULTIPLIER,
   JUMP_COST_UNITS,
@@ -34,7 +34,9 @@ export function Game({ session, onPlayAgain }: GameProps) {
   const cumulativeRef = useRef(session.chargedCumulativeAmount);
   const roundSpentRef = useRef(0n);
   const jumpCountRef = useRef(0);
-  const bankPenaltyRef = useRef(0);
+  const jumpBufferMsRef = useRef(0);
+  const jumpHeldRef = useRef(false);
+  const jumpAttemptInFlightRef = useRef(false);
   const channelIdRef = useRef<`0x${string}` | null>(session.channelId);
   const checkpointInFlightRef = useRef<Promise<void> | null>(null);
   const jumpPaymentInFlightRef = useRef(false);
@@ -57,7 +59,7 @@ export function Game({ session, onPlayAgain }: GameProps) {
   const [started, setStarted] = useState(false);
 
   const currentJumpCost = useCallback((): bigint => {
-    return bankPenaltyRef.current > 0
+    return stateRef.current.bankPenaltyJumpsLeft > 0
       ? JUMP_COST_UNITS * BigInt(BANK_PENALTY_MULTIPLIER)
       : JUMP_COST_UNITS;
   }, []);
@@ -137,8 +139,8 @@ export function Game({ session, onPlayAgain }: GameProps) {
     roundSpentRef.current += cost;
     jumpCountRef.current++;
 
-    if (bankPenaltyRef.current > 0) {
-      bankPenaltyRef.current--;
+    if (stateRef.current.bankPenaltyJumpsLeft > 0) {
+      stateRef.current.bankPenaltyJumpsLeft--;
     }
 
     lastVoucherRef.current = voucher;
@@ -186,24 +188,31 @@ export function Game({ session, onPlayAgain }: GameProps) {
     });
   }, []);
 
-  const requestJump = useCallback(() => {
-    if (!started) setStarted(true);
+  const attemptBufferedJump = useCallback(() => {
+    if (jumpBufferMsRef.current <= 0) return;
+    if (jumpAttemptInFlightRef.current) return;
 
-    const queuedJump = jumpQueueRef.current
+    jumpAttemptInFlightRef.current = true;
+    const attempt = jumpQueueRef.current
       .catch(() => {})
       .then(async () => {
         await waitForJumpCooldown();
-        await tryJump(stateRef.current, callbacks.current);
+        const jumped = await tryJump(stateRef.current, callbacks.current);
+        if (jumped) {
+          jumpBufferMsRef.current = 0;
+        }
+      })
+      .finally(() => {
+        jumpAttemptInFlightRef.current = false;
       });
 
-    jumpQueueRef.current = queuedJump.then(() => undefined);
+    jumpQueueRef.current = attempt.then(() => undefined);
     void jumpQueueRef.current;
-  }, [started, waitForJumpCooldown]);
+  }, [waitForJumpCooldown]);
 
   const callbacks = useRef<EngineCallbacks>({
     onJumpCost: () => false,
     onHitGasPump: () => {},
-    onHitBank: () => {},
     onGameOver: () => {},
     canvasWidth: 800,
     canvasHeight: 400,
@@ -213,9 +222,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
     callbacks.current = {
       onJumpCost: handleJumpCost,
       onHitGasPump: () => {},
-      onHitBank: () => {
-        bankPenaltyRef.current = 5;
-      },
       onGameOver: endGame,
       canvasWidth: canvasRef.current?.width ?? 800,
       canvasHeight: canvasRef.current?.height ?? 400,
@@ -241,15 +247,29 @@ export function Game({ session, onPlayAgain }: GameProps) {
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
+    const STEP = 16;
+    const MAX_ACC = 200;
+    const MAX_STEPS = 5;
+    let acc = 0;
+
     const loop = (timestamp: number) => {
-      const dt = lastTimeRef.current ? Math.min(timestamp - lastTimeRef.current, 33) : 16;
+      const frameDt = lastTimeRef.current ? timestamp - lastTimeRef.current : STEP;
       lastTimeRef.current = timestamp;
+      acc = Math.min(acc + frameDt, MAX_ACC);
 
       const state = stateRef.current;
+      let steps = 0;
+      while (acc >= STEP && steps < MAX_STEPS) {
+        if (state.phase !== "game-over") {
+          tick(state, STEP, callbacks.current);
+          jumpBufferMsRef.current = Math.max(0, jumpBufferMsRef.current - STEP);
+          void attemptBufferedJump();
+        }
+        acc -= STEP;
+        steps++;
+      }
 
       if (state.phase !== "game-over") {
-        tick(state, dt, callbacks.current);
-
         render(ctx, state);
 
         if (state.frameCount % 10 === 0) {
@@ -257,7 +277,7 @@ export function Game({ session, onPlayAgain }: GameProps) {
             balance: Number(balanceRef.current),
             distance: state.distance,
             voucherCount: jumpCountRef.current,
-            bankPenaltyJumpsLeft: bankPenaltyRef.current,
+            bankPenaltyJumpsLeft: state.bankPenaltyJumpsLeft,
             gasLockoutMs: state.jumpLockoutMs,
           });
         }
@@ -273,37 +293,56 @@ export function Game({ session, onPlayAgain }: GameProps) {
       window.removeEventListener("resize", resizeCanvas);
       void flushVoucherCheckpoint(true);
     };
-  }, [currentJumpCost, endGame, flushVoucherCheckpoint]);
+  }, [attemptBufferedJump, flushVoucherCheckpoint]);
 
   // Input handling
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space" && e.code !== "ArrowUp") return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (!started) setStarted(true);
+      jumpBufferMsRef.current = JUMP_BUFFER_MS;
+      jumpHeldRef.current = true;
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.code === "ArrowUp") {
-        e.preventDefault();
-        requestJump();
+        jumpHeldRef.current = false;
       }
     };
 
-    const handleTouch = (e: TouchEvent) => {
+    const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
-      requestJump();
+      if (jumpHeldRef.current) return;
+      if (!started) setStarted(true);
+      jumpBufferMsRef.current = JUMP_BUFFER_MS;
+      jumpHeldRef.current = true;
+    };
+
+    const handleTouchEnd = () => {
+      jumpHeldRef.current = false;
     };
 
     const handlePageHide = () => {
       void flushVoucherCheckpoint(true);
     };
 
-    window.addEventListener("keydown", handleKey);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
     window.addEventListener("pagehide", handlePageHide);
     const canvas = canvasRef.current;
-    canvas?.addEventListener("touchstart", handleTouch, { passive: false });
+    canvas?.addEventListener("touchstart", handleTouchStart, { passive: false });
+    canvas?.addEventListener("touchend", handleTouchEnd);
 
     return () => {
-      window.removeEventListener("keydown", handleKey);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("pagehide", handlePageHide);
-      canvas?.removeEventListener("touchstart", handleTouch);
+      canvas?.removeEventListener("touchstart", handleTouchStart);
+      canvas?.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [flushVoucherCheckpoint, requestJump]);
+  }, [flushVoucherCheckpoint, started]);
 
   const handleSubmitScore = async () => {
     const state = stateRef.current;

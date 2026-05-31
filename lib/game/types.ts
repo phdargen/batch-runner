@@ -51,6 +51,8 @@ export type GameState = {
   bankPenaltyJumpsLeft: number;
   screenShake: number;
   lastObstacleDistance: number;
+  lastObstacleType: ObstacleType | null;
+  forbidGapNextSpawn: boolean;
   runFrame: number;
   runFrameTimer: number;
   dinoReaction: DinoReaction;
@@ -69,3 +71,7 @@ export const OBSTACLE_MIN_GAP = 300;
 export const JUMP_COOLDOWN_MS = 320;
 export const GAS_LOCKOUT_DURATION_MS = 2200;
 export const BANK_PENALTY_JUMPS = 5;
+export const JUMP_BUFFER_MS = 120;
+export const MAX_FALL_VELOCITY = 18;
+export const GAP_FALL_MARGIN = 8;
+export const HAZARD_GAP_BONUS = 80;
