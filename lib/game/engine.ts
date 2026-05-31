@@ -24,6 +24,7 @@ import {
   PLATFORM_TOP_LANDING_TOLERANCE,
   PLATFORM_BOTTOM_BOUNCE_VELOCITY,
   PLATFORM_BOTTOM_HIT_TOLERANCE,
+  GAME_VIEWPORT_WIDTH,
 } from "./types";
 
 export function createInitialState(): GameState {
@@ -58,7 +59,7 @@ export function createInitialState(): GameState {
 
 function initClouds(): Cloud[] {
   return Array.from({ length: 5 }, () => ({
-    x: Math.random() * 800,
+    x: Math.random() * GAME_VIEWPORT_WIDTH,
     y: 30 + Math.random() * 100,
     width: 40 + Math.random() * 60,
     opacity: 0.1 + Math.random() * 0.15,

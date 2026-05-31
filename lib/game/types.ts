@@ -73,6 +73,10 @@ export type GameState = {
 };
 
 
+/** Fixed logical viewport — game sim + render always use this size; CSS scales to fit the screen. */
+export const GAME_VIEWPORT_WIDTH = 800;
+export const GAME_VIEWPORT_HEIGHT = 400;
+
 export const DINO_WIDTH = 40;
 export const DINO_HEIGHT = 48;
 export const GRAVITY = 0.65;

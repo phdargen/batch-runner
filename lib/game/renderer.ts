@@ -1,5 +1,5 @@
 import type { GameState, VisualZone } from "./types";
-import { DINO_WIDTH, DINO_HEIGHT } from "./types";
+import { DINO_WIDTH, DINO_HEIGHT, GAME_VIEWPORT_HEIGHT, GAME_VIEWPORT_WIDTH } from "./types";
 import { drawDino, drawPlatformSet, drawNyBackground, drawGlowFloor, getGroundY } from "./sprites";
 
 function getVisualZone(distance: number): VisualZone {
@@ -37,7 +37,8 @@ function getBackgroundGradient(
 }
 
 export function render(ctx: CanvasRenderingContext2D, state: GameState) {
-  const { width, height } = ctx.canvas;
+  const width = GAME_VIEWPORT_WIDTH;
+  const height = GAME_VIEWPORT_HEIGHT;
   const groundY = getGroundY(height);
   const zone = getVisualZone(state.distance);
 

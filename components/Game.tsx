@@ -4,7 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createInitialState, tick, tryJump } from "@/lib/game/engine";
 import type { EngineCallbacks } from "@/lib/game/engine";
 import { render } from "@/lib/game/renderer";
-import { JUMP_BUFFER_MS, type GameState } from "@/lib/game/types";
+import { JUMP_BUFFER_MS, GAME_VIEWPORT_HEIGHT, GAME_VIEWPORT_WIDTH, type GameState } from "@/lib/game/types";
+import {
+  applyCanvasViewport,
+  computeViewportLayout,
+  isPortraitMobile,
+  tryLockLandscape,
+  type ViewportLayout,
+} from "@/lib/game/viewport";
 import { JUMP_COST_UNITS, NEXT_DEV, VOUCHER_CHECKPOINT_JUMPS } from "@/lib/x402/config";
 import { signGameVoucher, verifyGameVoucher } from "@/lib/x402/channel";
 import type { SessionInfo } from "./DepositFlow";
@@ -18,6 +25,8 @@ type GameProps = {
 
 export function Game({ session, onPlayAgain }: GameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef<GameState>(createInitialState());
   const animRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
@@ -49,6 +58,11 @@ export function Game({ session, onPlayAgain }: GameProps) {
   const [gameOver, setGameOver] = useState(false);
   const [rank, setRank] = useState<number | null>(null);
   const [started, setStarted] = useState(false);
+  const [viewportLayout, setViewportLayout] = useState<ViewportLayout>({
+    displayWidth: GAME_VIEWPORT_WIDTH,
+    displayHeight: GAME_VIEWPORT_HEIGHT,
+  });
+  const [portraitBlocked, setPortraitBlocked] = useState(false);
   const startedRef = useRef(false);
 
   const currentJumpCost = useCallback((): bigint => JUMP_COST_UNITS, []);
@@ -198,16 +212,16 @@ export function Game({ session, onPlayAgain }: GameProps) {
   const callbacks = useRef<EngineCallbacks>({
     onJumpCost: () => false,
     onGameOver: () => {},
-    canvasWidth: 800,
-    canvasHeight: 400,
+    canvasWidth: GAME_VIEWPORT_WIDTH,
+    canvasHeight: GAME_VIEWPORT_HEIGHT,
   });
 
   useEffect(() => {
     callbacks.current = {
       onJumpCost: handleJumpCost,
       onGameOver: endGame,
-      canvasWidth: canvasRef.current?.width ?? 800,
-      canvasHeight: canvasRef.current?.height ?? 400,
+      canvasWidth: GAME_VIEWPORT_WIDTH,
+      canvasHeight: GAME_VIEWPORT_HEIGHT,
     };
   }, [handleJumpCost, endGame]);
 
@@ -220,15 +234,24 @@ export function Game({ session, onPlayAgain }: GameProps) {
     if (!ctx) return;
 
     const resizeCanvas = () => {
-      const rect = canvas.parentElement?.getBoundingClientRect();
-      if (!rect) return;
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      callbacks.current.canvasWidth = canvas.width;
-      callbacks.current.canvasHeight = canvas.height;
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const layout = computeViewportLayout(rect.width, rect.height);
+      if (!layout) return;
+      setViewportLayout(layout);
+      applyCanvasViewport(canvas, layout);
     };
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
+    const container = containerRef.current;
+    const resizeObserver = new ResizeObserver(resizeCanvas);
+    if (container) resizeObserver.observe(container);
+
+    const portraitQuery = window.matchMedia("(orientation: portrait) and (max-width: 900px)");
+    const syncPortrait = () => setPortraitBlocked(isPortraitMobile());
+    syncPortrait();
+    portraitQuery.addEventListener("change", syncPortrait);
 
     const STEP = 16;
     const MAX_ACC = 200;
@@ -277,6 +300,8 @@ export function Game({ session, onPlayAgain }: GameProps) {
     return () => {
       cancelAnimationFrame(animRef.current);
       window.removeEventListener("resize", resizeCanvas);
+      resizeObserver.disconnect();
+      portraitQuery.removeEventListener("change", syncPortrait);
       void flushVoucherCheckpoint(true);
     };
   }, [attemptBufferedJump, flushVoucherCheckpoint]);
@@ -292,6 +317,11 @@ export function Game({ session, onPlayAgain }: GameProps) {
       cancelAnimationFrame(animRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    if (!started) return;
+    tryLockLandscape();
+  }, [started]);
 
   // Input handling
   useEffect(() => {
@@ -354,7 +384,7 @@ export function Game({ session, onPlayAgain }: GameProps) {
     };
   }, [flushVoucherCheckpoint, started, toggleDevFreeze]);
 
-  const handleSubmitScore = async () => {
+  const handleSubmitScore = useCallback(async () => {
     const state = stateRef.current;
     await flushVoucherCheckpoint();
     const res = await fetch("/api/leaderboard", {
@@ -372,39 +402,67 @@ export function Game({ session, onPlayAgain }: GameProps) {
       const data = await res.json();
       setRank(data.rank ?? null);
     }
-  };
+  }, [flushVoucherCheckpoint, session.playerAddress, session.sessionAddress]);
+
+  useEffect(() => {
+    if (!gameOver) return;
+    void handleSubmitScore();
+  }, [gameOver, handleSubmitScore]);
 
   return (
-    <div className="relative w-full h-[400px] rounded-2xl overflow-hidden border border-[var(--color-surface-lighter)]">
-      <GameHUD
-        balance={hudState.balance}
-        distance={hudState.distance}
-        voucherCount={hudState.voucherCount}
-      />
-
-      <canvas ref={canvasRef} className="w-full h-full block" />
-
-      {!started && !gameOver && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-10">
-          <div className="text-center animate-slide-up">
-            <p className="text-lg font-bold text-white mb-2">Press SPACE or tap to start</p>
-            <p className="text-xs text-[var(--color-text-secondary)]">
-              Each jump costs $0.001. Jump over gaps to stay on the chain.
+    <div
+      ref={containerRef}
+      className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden"
+    >
+      {portraitBlocked && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[var(--color-surface)]">
+          <div className="text-center px-8 animate-slide-up">
+            <p className="text-4xl mb-4">📱</p>
+            <p className="text-sm font-bold">Rotate your device</p>
+            <p className="text-xs text-[var(--color-text-secondary)] mt-2">
+              Batch Runner is played in landscape
             </p>
           </div>
         </div>
       )}
 
-      {gameOver && (
-        <GameOver
-          distance={stateRef.current.distance}
-          voucherCount={jumpCountRef.current}
-          totalSpent={Number(roundSpentRef.current)}
-          rank={rank}
-          onPlayAgain={onPlayAgain}
-          onSubmitScore={handleSubmitScore}
+      <div
+        ref={viewportRef}
+        className="relative shrink-0 overflow-hidden"
+        style={{
+          width: viewportLayout.displayWidth,
+          height: viewportLayout.displayHeight,
+        }}
+      >
+        <GameHUD
+          balance={hudState.balance}
+          distance={hudState.distance}
+          voucherCount={hudState.voucherCount}
         />
-      )}
+
+        <canvas ref={canvasRef} className="block" />
+
+        {!started && !gameOver && !portraitBlocked && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-10">
+            <div className="text-center animate-slide-up">
+              <p className="text-lg font-bold text-white mb-2">Press SPACE or tap to start</p>
+              <p className="text-xs text-[var(--color-text-secondary)]">
+                Each jump costs $0.001. Jump over gaps to stay on the chain.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {gameOver && (
+          <GameOver
+            distance={stateRef.current.distance}
+            voucherCount={jumpCountRef.current}
+            totalSpent={Number(roundSpentRef.current)}
+            rank={rank}
+            onPlayAgain={onPlayAgain}
+          />
+        )}
+      </div>
     </div>
   );
 }

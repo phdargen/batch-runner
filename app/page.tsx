@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { WalletConnect, type BaseAuthSession } from "@/components/WalletConnect";
 import { DepositFlow, type SessionInfo } from "@/components/DepositFlow";
 import { Game } from "@/components/Game";
-import { Leaderboard } from "@/components/Leaderboard";
 import { buildGameChannelConfig } from "@/lib/x402/channel";
 import { NEXT_DEV, RECEIVER_ADDRESS, roundBudgetUnits } from "@/lib/x402/config";
 import { LocalStorageChannelStorage } from "@/lib/x402/browserStorage";
@@ -45,56 +44,36 @@ export default function Home() {
   };
 
   const showWallet = !NEXT_DEV;
+  const isPlaying = !!session;
+
+  if (isPlaying) {
+    return (
+      <main className="fixed inset-0 w-full h-dvh overflow-hidden">
+        <div className="absolute top-3 right-3 z-20">
+          {showWallet ? (
+            <WalletConnect session={authSession} onSignIn={setAuthSession} onSignOut={handleSignOut} />
+          ) : (
+            <span className="px-3 py-1.5 text-xs border border-[var(--color-base-blue)] rounded-lg text-[var(--color-base-blue)]">
+              NEXT_DEV
+            </span>
+          )}
+        </div>
+        <Game key={gameKey} session={session} onPlayAgain={handlePlayAgain} />
+      </main>
+    );
+  }
 
   return (
-    <main className="min-h-screen flex flex-col items-center px-4 py-8 gap-8">
-      {/* Header */}
-      <header className="w-full max-w-2xl flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            <span className="text-[var(--color-base-blue)]">Batch</span> Runner
-          </h1>
-          <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
-            1,000 jumps. $1. Zero gas.
-          </p>
-        </div>
-        {showWallet ? (
-          <WalletConnect session={authSession} onSignIn={setAuthSession} onSignOut={handleSignOut} />
-        ) : (
-          <span className="px-3 py-1.5 text-xs border border-[var(--color-base-blue)] rounded-lg text-[var(--color-base-blue)]">
-            NEXT_DEV
-          </span>
-        )}
-      </header>
-
-      {/* Game area */}
+    <main className="min-h-screen flex flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-2xl">
-        {NEXT_DEV && session ? (
-          <Game key={gameKey} session={session} onPlayAgain={handlePlayAgain} />
-        ) : NEXT_DEV ? (
+        {NEXT_DEV ? (
           <DevLoading />
         ) : !authSession ? (
           <Landing />
-        ) : !session ? (
-          <DepositFlow authSession={authSession} onSessionReady={setSession} />
         ) : (
-          <Game key={gameKey} session={session} onPlayAgain={handlePlayAgain} />
+          <DepositFlow authSession={authSession} onSessionReady={setSession} />
         )}
       </div>
-
-      {/* Leaderboard */}
-      <div className="w-full max-w-2xl">
-        <Leaderboard />
-      </div>
-
-      {/* Footer */}
-      <footer className="text-xs text-[var(--color-text-secondary)] text-center pb-4">
-        Built with{" "}
-        <a href="https://x402.org" className="text-[var(--color-base-blue)] hover:underline">
-          x402
-        </a>{" "}
-        batch-settlement on Base Sepolia
-      </footer>
     </main>
   );
 }
