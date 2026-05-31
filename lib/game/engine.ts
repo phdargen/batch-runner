@@ -4,9 +4,9 @@ import {
   BANK_DRAW_HEIGHT,
   PLATFORM_DRAW_WIDTH,
   PLATFORM_DRAW_HEIGHT,
+  getGroundY,
 } from "./sprites";
 import {
-  GROUND_Y,
   DINO_WIDTH,
   DINO_HEIGHT,
   GRAVITY,
@@ -120,7 +120,7 @@ export async function tryJump(state: GameState, callbacks: EngineCallbacks): Pro
   state.isJumping = true;
   state.jumpCooldownMs = JUMP_COOLDOWN_MS;
 
-  spawnJumpParticles(state, 80 + DINO_WIDTH / 2, callbacks.canvasHeight * GROUND_Y + state.dinoY);
+  spawnJumpParticles(state, 80 + DINO_WIDTH / 2, getGroundY(callbacks.canvasHeight) + state.dinoY);
   return true;
 }
 
@@ -230,7 +230,7 @@ export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): 
 function updateTopJumpLock(state: GameState, callbacks: EngineCallbacks) {
   if (state.phase === "falling" || state.phase === "game-over") return;
 
-  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const groundY = getGroundY(callbacks.canvasHeight);
   const dinoScreenY = groundY - DINO_HEIGHT + state.dinoY;
 
   if (dinoScreenY < 0) {
@@ -417,7 +417,7 @@ function checkCollisions(state: GameState, callbacks: EngineCallbacks) {
   if (state.phase === "falling") return;
 
   const dinoX = 80;
-  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const groundY = getGroundY(callbacks.canvasHeight);
   const dinoScreenY = groundY - DINO_HEIGHT + state.dinoY;
   const dinoRect = {
     x: dinoX + 6,
@@ -629,7 +629,7 @@ function tryBounceOffBankTop(
 ): boolean {
   if (!state.isJumping || state.dinoVelocity < 0) return false;
 
-  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const groundY = getGroundY(callbacks.canvasHeight);
   const prevFeetY = groundY + prevDinoY;
   const feetY = groundY + state.dinoY;
   const dino = getDinoHitbox(state, groundY);
@@ -683,7 +683,7 @@ function tryLandOnPlatform(
 ): boolean {
   if (!state.isJumping || state.dinoVelocity < 0) return false;
 
-  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const groundY = getGroundY(callbacks.canvasHeight);
   const prevFeetY = groundY + prevDinoY;
   const feetY = groundY + state.dinoY;
   const dino = getDinoHitbox(state, groundY);
@@ -744,7 +744,7 @@ function tryBounceOffPlatformBottom(
   const movingUp = state.dinoY < prevDinoY;
   if (!movingUp) return false;
 
-  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const groundY = getGroundY(callbacks.canvasHeight);
   const prevDinoScreenY = groundY - DINO_HEIGHT + prevDinoY;
   const prevHeadY = prevDinoScreenY + DINO_HITBOX_INSET_Y;
   const prevFeetY = prevDinoScreenY + DINO_HEIGHT;
@@ -813,7 +813,7 @@ function tryBounceOffPlatformBottom(
 function checkPlatformSupport(state: GameState, callbacks: EngineCallbacks) {
   if (state.phase !== "running" || state.isJumping || state.dinoY >= 0) return;
 
-  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const groundY = getGroundY(callbacks.canvasHeight);
   const dino = getDinoHitbox(state, groundY);
   const dinoLeft = dino.x;
   const dinoRight = dino.x + dino.w;
@@ -893,7 +893,7 @@ function dinoFellIntoGap(
 }
 
 function finalizeGapFallIfOffScreen(state: GameState, callbacks: EngineCallbacks) {
-  const groundY = callbacks.canvasHeight * GROUND_Y;
+  const groundY = getGroundY(callbacks.canvasHeight);
   const dinoTop = groundY - DINO_HEIGHT + state.dinoY;
   const margin = 24;
   if (dinoTop > callbacks.canvasHeight + margin) {

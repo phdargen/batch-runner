@@ -1,6 +1,6 @@
 import type { GameState, VisualZone } from "./types";
-import { GROUND_Y, DINO_WIDTH, DINO_HEIGHT } from "./types";
-import { drawDino, drawBank, drawPlatformSet, drawNyBackground, drawNyFloor } from "./sprites";
+import { DINO_WIDTH, DINO_HEIGHT } from "./types";
+import { drawDino, drawBank, drawPlatformSet, drawNyBackground, drawGlowFloor, getGroundY } from "./sprites";
 
 function getVisualZone(distance: number): VisualZone {
   if (distance < 2000) return "calm";
@@ -36,33 +36,9 @@ function getBackgroundGradient(
   return grad;
 }
 
-function getPitVoidGradient(
-  ctx: CanvasRenderingContext2D,
-  groundY: number,
-  height: number,
-): CanvasGradient {
-  const grad = ctx.createLinearGradient(0, groundY, 0, height);
-  grad.addColorStop(0, "#0f0f28");
-  grad.addColorStop(1, "#020208");
-  return grad;
-}
-
-function getGroundGlow(zone: VisualZone): { color: string; alpha: number } {
-  switch (zone) {
-    case "calm":
-      return { color: "#0052FF", alpha: 0.3 };
-    case "dusk":
-      return { color: "#0052FF", alpha: 0.5 };
-    case "night":
-      return { color: "#457EFF", alpha: 0.7 };
-    case "overdrive":
-      return { color: "#457EFF", alpha: 0.9 };
-  }
-}
-
 export function render(ctx: CanvasRenderingContext2D, state: GameState) {
   const { width, height } = ctx.canvas;
-  const groundY = Math.floor(height * GROUND_Y);
+  const groundY = getGroundY(height);
   const zone = getVisualZone(state.distance);
 
   ctx.save();
@@ -74,10 +50,10 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.translate(shakeX, shakeY);
   }
 
-  const hasNyBackground = drawNyBackground(ctx, width, groundY, state.groundOffset);
+  const hasNyBackground = drawNyBackground(ctx, width, height, state.groundOffset);
   if (!hasNyBackground) {
-    ctx.fillStyle = getBackgroundGradient(ctx, "calm", groundY);
-    ctx.fillRect(0, 0, width, groundY);
+    ctx.fillStyle = getBackgroundGradient(ctx, zone, height);
+    ctx.fillRect(0, 0, width, height);
   }
 
   // Speed lines (night + overdrive, skyline only)
@@ -96,51 +72,17 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.restore();
   }
 
-  ctx.fillStyle = "#0a0a14";
-  ctx.fillRect(0, groundY, width, height - groundY);
-
   const floorGaps = state.obstacles
     .filter((obs) => obs.type === "gap")
     .map((obs) => ({ x: obs.x, width: obs.width }));
 
   drawFloorWithGaps(ctx, width, groundY, height, floorGaps, () => {
-    const hasNyFloor = drawNyFloor(ctx, width, groundY, height, state.groundOffset);
-    if (!hasNyFloor) {
-      const glow = getGroundGlow("calm");
-      ctx.save();
-      ctx.strokeStyle = glow.color;
-      ctx.globalAlpha = glow.alpha;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, groundY);
-      ctx.lineTo(width, groundY);
-      ctx.stroke();
-
-      ctx.globalAlpha = glow.alpha * 0.5;
-      ctx.lineWidth = 1;
-      const dashLen = 20;
-      const gapLen = 30;
-      const offset = state.groundOffset % (dashLen + gapLen);
-      for (let x = -offset; x < width; x += dashLen + gapLen) {
-        ctx.beginPath();
-        ctx.moveTo(x, groundY + 8);
-        ctx.lineTo(x + dashLen, groundY + 8);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
+    drawGlowFloor(ctx, width, groundY, state.groundOffset);
   });
 
   for (const obs of state.obstacles) {
     if (obs.type === "bank") {
       drawBank(ctx, obs.x, groundY - obs.height);
-    }
-  }
-
-  if (floorGaps.length > 0) {
-    ctx.fillStyle = getPitVoidGradient(ctx, groundY, height);
-    for (const gap of floorGaps) {
-      ctx.fillRect(gap.x, groundY, gap.width, height - groundY);
     }
   }
 

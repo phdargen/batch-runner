@@ -74,7 +74,7 @@ export type GameState = {
   dinoReactionTimerMs: number;
 };
 
-export const GROUND_Y = 0.78;
+
 export const DINO_WIDTH = 40;
 export const DINO_HEIGHT = 48;
 export const GRAVITY = 0.65;

@@ -16,12 +16,16 @@ const DINO_SPRITE_SRC = "/dino.png";
 const DINO_WALK_SPRITE_SRC = "/dino3.png";
 const DINO_WALK_FRAME_COUNT = 3;
 const DINO_SPRITE_DRAW_HEIGHT = 56;
-const NY_BACKGROUND_SRC = "/ny.png";
-const FLOOR_NY_SRC = "/floor_ny.png";
-const FLOOR_NY_SOURCE_X = 0;
-const FLOOR_NY_SOURCE_Y = 346;
-const FLOOR_NY_SOURCE_WIDTH = 2508;
-const FLOOR_NY_SOURCE_HEIGHT = 182;
+const NY_BACKGROUND_SRC = "/tokyo3.png";
+const GLOW_BLOCK_SIZE = 50;
+const GLOW_BLOCK_CORNER_RADIUS = 5;
+/** Platforms with this many tiles use the Base logo shape for the lead block. */
+export const BASE_LOGO_PLATFORM_TILE_COUNT = 4;
+
+/** Walkable ground line — top edge of bottom-aligned floor tiles. */
+export function getGroundY(canvasHeight: number): number {
+  return Math.floor(canvasHeight - GLOW_BLOCK_SIZE);
+}
 const BANK_SPRITE_SRC = "/bank.png";
 const BANK_SOURCE_X = 193;
 const BANK_SOURCE_Y = 286;
@@ -100,43 +104,6 @@ function tilePixelImage(
   let drawX = Math.floor(x - offset);
   while (drawX < canvasWidth) {
     ctx.drawImage(sprite, drawX, Math.floor(y), w, h);
-    drawX += w;
-  }
-  ctx.restore();
-}
-
-function tilePixelImageSource(
-  ctx: CanvasRenderingContext2D,
-  sprite: HTMLImageElement,
-  sourceX: number,
-  sourceY: number,
-  sourceWidth: number,
-  sourceHeight: number,
-  scrollOffset: number,
-  canvasWidth: number,
-  x: number,
-  y: number,
-  tileWidth: number,
-  tileHeight: number,
-) {
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  const w = Math.round(tileWidth);
-  const h = Math.round(tileHeight);
-  const offset = ((scrollOffset % w) + w) % w;
-  let drawX = Math.floor(x - offset);
-  while (drawX < canvasWidth) {
-    ctx.drawImage(
-      sprite,
-      sourceX,
-      sourceY,
-      sourceWidth,
-      sourceHeight,
-      drawX,
-      Math.floor(y),
-      w,
-      h,
-    );
     drawX += w;
   }
   ctx.restore();
@@ -310,45 +277,116 @@ export function drawNyBackground(
   return true;
 }
 
-export function drawNyFloor(
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function drawGlowBlock(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  const size = GLOW_BLOCK_SIZE;
+  const radius = GLOW_BLOCK_CORNER_RADIUS;
+
+  ctx.save();
+  ctx.shadowColor = "#ffffff";
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+  roundRectPath(ctx, x, y, size, size, radius);
+  ctx.fill();
+
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = "#ffffff";
+  roundRectPath(ctx, x, y, size, size, radius);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Base logo lead tile: square body plus top-left stem (lowercase "b" silhouette). */
+function baseLogoBlockPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  radius: number,
+) {
+  const stemWidth = size * 0.48;
+  const stemTop = y - size * 0.45;
+  const r = radius;
+
+  ctx.beginPath();
+  ctx.moveTo(x + r, y + size);
+  ctx.lineTo(x + size - r, y + size);
+  ctx.quadraticCurveTo(x + size, y + size, x + size, y + size - r);
+  ctx.lineTo(x + size, y + r);
+  ctx.quadraticCurveTo(x + size, y, x + size - r, y);
+  ctx.lineTo(x + stemWidth + r, y);
+  ctx.quadraticCurveTo(x + stemWidth, y, x + stemWidth, y - r);
+  ctx.lineTo(x + stemWidth, stemTop + r);
+  ctx.quadraticCurveTo(x + stemWidth, stemTop, x + stemWidth - r, stemTop);
+  ctx.lineTo(x + r, stemTop);
+  ctx.quadraticCurveTo(x, stemTop, x, stemTop + r);
+  ctx.lineTo(x, y + size - r);
+  ctx.quadraticCurveTo(x, y + size, x + r, y + size);
+  ctx.closePath();
+}
+
+function drawBaseLogoLeadBlock(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  const size = GLOW_BLOCK_SIZE;
+  const radius = GLOW_BLOCK_CORNER_RADIUS;
+
+  ctx.save();
+  ctx.shadowColor = "#ffffff";
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
+  baseLogoBlockPath(ctx, x, y, size, radius);
+  ctx.fill();
+
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = "#ffffff";
+  baseLogoBlockPath(ctx, x, y, size, radius);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawGlowBlockRow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  tileCount: number,
+) {
+  for (let i = 0; i < tileCount; i++) {
+    drawGlowBlock(ctx, x + i * GLOW_BLOCK_SIZE, y);
+  }
+}
+
+export function drawGlowFloor(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
   groundY: number,
-  canvasHeight: number,
   scrollOffset: number,
-): boolean {
-  const sprite = getSprite(FLOOR_NY_SRC);
-  if (!sprite) return false;
-
-  const drawHeight = canvasHeight - groundY;
-  const tileWidth = (FLOOR_NY_SOURCE_WIDTH / FLOOR_NY_SOURCE_HEIGHT) * drawHeight;
-  tilePixelImageSource(
-    ctx,
-    sprite,
-    FLOOR_NY_SOURCE_X,
-    FLOOR_NY_SOURCE_Y,
-    FLOOR_NY_SOURCE_WIDTH,
-    FLOOR_NY_SOURCE_HEIGHT,
-    Math.floor(scrollOffset),
-    canvasWidth,
-    0,
-    groundY,
-    tileWidth,
-    drawHeight,
-  );
-  return true;
+) {
+  const tileCount = Math.ceil(canvasWidth / GLOW_BLOCK_SIZE) + 1;
+  const offset = ((Math.floor(scrollOffset) % GLOW_BLOCK_SIZE) + GLOW_BLOCK_SIZE) % GLOW_BLOCK_SIZE;
+  drawGlowBlockRow(ctx, -offset, groundY, tileCount);
 }
 
-const PLATFORM_SPRITE_SRC = "/platform.png";
-const PLATFORM_SOURCE_X = 350;
-const PLATFORM_SOURCE_Y = 357;
-const PLATFORM_SOURCE_WIDTH = 554;
-const PLATFORM_SOURCE_HEIGHT = 493;
-
-export const PLATFORM_DRAW_WIDTH = 50;
-export const PLATFORM_DRAW_HEIGHT = Math.round(
-  PLATFORM_DRAW_WIDTH * (PLATFORM_SOURCE_HEIGHT / PLATFORM_SOURCE_WIDTH),
-);
+export const PLATFORM_DRAW_WIDTH = GLOW_BLOCK_SIZE;
+export const PLATFORM_DRAW_HEIGHT = GLOW_BLOCK_SIZE;
 
 export function drawPlatformSet(
   ctx: CanvasRenderingContext2D,
@@ -357,26 +395,15 @@ export function drawPlatformSet(
   elev: number,
   tileCount: number,
 ) {
-  const sprite = getSprite(PLATFORM_SPRITE_SRC);
-  if (!sprite) return;
-
   const topY = groundY - elev;
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
   for (let i = 0; i < tileCount; i++) {
-    ctx.drawImage(
-      sprite,
-      PLATFORM_SOURCE_X,
-      PLATFORM_SOURCE_Y,
-      PLATFORM_SOURCE_WIDTH,
-      PLATFORM_SOURCE_HEIGHT,
-      x + i * PLATFORM_DRAW_WIDTH,
-      topY,
-      PLATFORM_DRAW_WIDTH,
-      PLATFORM_DRAW_HEIGHT,
-    );
+    const tileX = x + i * GLOW_BLOCK_SIZE;
+    if (tileCount === BASE_LOGO_PLATFORM_TILE_COUNT && i === 0) {
+      drawBaseLogoLeadBlock(ctx, tileX, topY);
+    } else {
+      drawGlowBlock(ctx, tileX, topY);
+    }
   }
-  ctx.restore();
 }
 
 export function drawBank(ctx: CanvasRenderingContext2D, x: number, y: number) {
