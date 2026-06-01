@@ -92,7 +92,7 @@ export default function Home() {
   return (
     <main
       className={`min-h-dvh flex flex-col items-center px-4 ${
-        hasCityBackground ? "relative overflow-hidden" : "justify-center py-8"
+        hasCityBackground ? "relative overflow-x-hidden" : "justify-center py-8"
       }`}
     >
       {hasCityBackground && (
@@ -106,17 +106,21 @@ export default function Home() {
         </>
       )}
       {isDepositPage && (
-        <>
+        <div className="deposit-page-actions">
           <Link
             href="/leaderboard"
-            className="deposit-btn deposit-play-btn deposit-leaderboard-btn"
+            className="deposit-leaderboard-btn px-3 py-1.5 text-sm text-[var(--color-text-secondary)] font-mono border border-[var(--color-text-secondary)] rounded-lg hover:border-[var(--color-base-blue-light)] hover:text-[var(--color-base-blue-light)] transition-colors cursor-pointer"
           >
             Leaderboard
           </Link>
-          <div className="absolute top-3 right-3 z-20">
-            <WalletConnect session={authSession} onSignIn={setAuthSession} onSignOut={handleSignOut} />
+          <div className="deposit-wallet">
+            <WalletConnect
+              session={authSession}
+              onSignIn={setAuthSession}
+              onSignOut={handleSignOut}
+            />
           </div>
-        </>
+        </div>
       )}
       <div
         className={`w-full ${hasCityBackground ? "max-w-4xl relative z-10 min-h-dvh" : "max-w-2xl"}`}

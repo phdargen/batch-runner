@@ -531,15 +531,53 @@ body {
   height: auto;
 }
 
-.deposit-leaderboard-btn {
+.deposit-page-actions {
   position: fixed;
   top: 0.75rem;
   left: 0.75rem;
+  right: 0.75rem;
   z-index: 20;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  pointer-events: none;
+}
+
+.deposit-page-actions > * {
+  pointer-events: auto;
+}
+
+.deposit-wallet {
+  display: flex;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
+
+.deposit-wallet > div {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.deposit-wallet button {
+  max-width: 100%;
+}
+
+.deposit-wallet .text-sm {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deposit-leaderboard-btn {
+  flex: 0 0 auto;
   display: inline-block;
   text-align: center;
   text-decoration: none;
-  color: #eef4ff;
+  white-space: nowrap;
 }
 
 .deposit-flow {
@@ -1065,6 +1103,75 @@ body {
 
   .deposit-hint {
     font-size: 0.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .deposit-page-actions {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    width: 100%;
+    max-width: 26rem;
+    align-items: center;
+    margin: 0 auto;
+    padding: 0.75rem 0 0;
+    gap: 0.5rem;
+  }
+
+  .deposit-wallet > div {
+    gap: 0.45rem;
+  }
+
+  .deposit-wallet .text-sm {
+    font-size: 0.72rem;
+  }
+
+  .deposit-wallet button {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.68rem;
+  }
+
+  .deposit-flow {
+    justify-content: flex-start;
+    gap: 0.75rem;
+    min-height: auto;
+    padding: 0.5rem 0 1.5rem;
+  }
+
+  .deposit-logo {
+    width: min(60vw, 14rem);
+    max-height: 16dvh;
+  }
+
+  .deposit-card-body {
+    gap: 0.9rem;
+    padding: 1rem 0.9rem 0.95rem;
+  }
+
+  .deposit-intro {
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+
+  .deposit-hints {
+    gap: 0.25rem;
+  }
+
+  .deposit-hint {
+    font-size: 0.5rem;
+  }
+
+  .deposit-play-wrap {
+    width: 100%;
+  }
+
+  .deposit-play-btn,
+  .deposit-play-btn:hover:not(:disabled),
+  .deposit-play-btn:disabled {
+    width: 100%;
+    min-width: 0;
   }
 }
 

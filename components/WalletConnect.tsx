@@ -33,6 +33,7 @@ const SignInWithBaseButton = dynamic(
 export function WalletConnect({ session, onSignIn, onSignOut }: WalletConnectProps) {
   const [status, setStatus] = useState<"idle" | "restoring" | "signing">("restoring");
   const [error, setError] = useState<string | null>(null);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
 
   useEffect(() => {
     void preloadBaseProvider();
@@ -115,22 +116,64 @@ export function WalletConnect({ session, onSignIn, onSignOut }: WalletConnectPro
     }
   };
 
+  const confirmSignOut = () => {
+    setDisconnectConfirmOpen(false);
+    clearStoredAuthSession();
+    onSignOut();
+  };
+
   if (session) {
     return (
-      <div className="flex items-center gap-3">
-        <WalletLabel address={session.address} />
-        <button
-          onClick={() => {
-            clearStoredAuthSession();
-            onSignOut();
-          }}
-          className="px-3 py-1.5 text-xs border border-[var(--color-text-secondary)] rounded-lg
+      <>
+        <div className="flex items-center">
+          <button
+            type="button"
+            onClick={() => setDisconnectConfirmOpen(true)}
+            aria-label="Disconnect wallet"
+            className="px-3 py-1.5 text-xs border border-[var(--color-text-secondary)] rounded-lg
                      hover:border-[var(--color-accent-red)] hover:text-[var(--color-accent-red)]
                      transition-colors cursor-pointer"
-        >
-          Disconnect
-        </button>
-      </div>
+          >
+            <WalletLabel address={session.address} />
+          </button>
+        </div>
+
+        {disconnectConfirmOpen && (
+          <div
+            className="deposit-confirm-backdrop"
+            role="presentation"
+            onClick={() => setDisconnectConfirmOpen(false)}
+          >
+            <div
+              className="deposit-confirm"
+              role="alertdialog"
+              aria-labelledby="wallet-disconnect-title"
+              aria-describedby="wallet-disconnect-desc"
+              onClick={event => event.stopPropagation()}
+            >
+              <h2 id="wallet-disconnect-title" className="deposit-confirm-title">
+                Disconnect wallet?
+              </h2>
+              <div className="deposit-confirm-actions">
+                <button
+                  type="button"
+                  className="deposit-btn deposit-btn-secondary"
+                  onClick={() => setDisconnectConfirmOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="deposit-btn deposit-btn-primary"
+                  onClick={confirmSignOut}
+                >
+                  Disconnect
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
     );
   }
 
