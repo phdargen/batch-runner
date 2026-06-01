@@ -3,9 +3,8 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { createWalletClient, custom, getAddress, type WalletClient } from "viem";
-import { baseSepolia } from "viem/chains";
 
-import { CHAIN_ID } from "@/lib/x402/config";
+import { CHAIN, CHAIN_ID } from "@/lib/x402/config";
 import { WalletLabel } from "./WalletLabel";
 
 const AUTH_STORAGE_KEY = "x402:batch-runner:base-auth";
@@ -217,7 +216,7 @@ function buildAuthSession(
   const address = getAddress(stored.address) as `0x${string}`;
   const walletClient = createWalletClient({
     account: address,
-    chain: baseSepolia,
+    chain: CHAIN,
     transport: custom(provider),
   });
 

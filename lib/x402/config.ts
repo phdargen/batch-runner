@@ -1,10 +1,19 @@
 import { convertToTokenAmount } from "@x402/core/utils";
+import { base, baseSepolia } from "viem/chains";
 
-export const NETWORK = "eip155:84532";
-export const CHAIN_ID = 84532;
+/** When true, use Base Sepolia (84532); otherwise Base mainnet (8453). */
+export const TESTNET =
+  process.env.NEXT_PUBLIC_TESTNET === "true" || process.env.TESTNET === "true";
+
+export const CHAIN = TESTNET ? baseSepolia : base;
+export const CHAIN_ID = CHAIN.id;
+export const NETWORK = `eip155:${CHAIN_ID}` as const;
 export const NEXT_DEV = process.env.NEXT_DEV === "true";
 
-export const USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as const;
+const BASE_SEPOLIA_USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e" as const;
+const BASE_MAINNET_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
+
+export const USDC_ADDRESS = TESTNET ? BASE_SEPOLIA_USDC : BASE_MAINNET_USDC;
 export const USDC_DECIMALS = 6;
 const DEV_RECEIVER_ADDRESS = "0x0000000000000000000000000000000000000001";
 

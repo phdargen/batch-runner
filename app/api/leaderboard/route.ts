@@ -3,6 +3,7 @@ import { verifyTypedData, getAddress, type Address } from "viem";
 import { BATCH_SETTLEMENT_DOMAIN, BATCH_SETTLEMENT_ADDRESS, voucherTypes } from "@x402/evm";
 import { resolveBasename } from "@/lib/server/basename";
 import { leaderboardStorage, type LeaderboardEntry } from "@/lib/server/storage";
+import { CHAIN_ID } from "@/lib/x402/config";
 
 const MAX_ENTRIES = 100;
 
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
         address: getAddress(signerAddress),
         domain: {
           ...BATCH_SETTLEMENT_DOMAIN,
-          chainId: 84532,
+          chainId: CHAIN_ID,
           verifyingContract: getAddress(BATCH_SETTLEMENT_ADDRESS),
         },
         types: voucherTypes,

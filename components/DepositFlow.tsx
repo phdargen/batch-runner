@@ -5,7 +5,6 @@ import { decodePaymentRequiredHeader, decodePaymentResponseHeader } from "@x402/
 import type { PaymentRequirements } from "@x402/core/types";
 import type { Account, WalletClient } from "viem";
 import { createPublicClient, http } from "viem";
-import { baseSepolia } from "viem/chains";
 import type { ChannelConfig } from "@x402/evm";
 import { BATCH_SETTLEMENT_ADDRESS } from "@x402/evm";
 import {
@@ -21,6 +20,7 @@ import {
   MAX_CUSTOM_JUMPS,
   MAX_JUMPS_PER_RUN,
   MIN_CUSTOM_JUMPS,
+  CHAIN,
   NETWORK,
   NEXT_DEV,
   RUN_PRICE_UNITS,
@@ -46,7 +46,7 @@ import type { BaseAuthSession } from "./WalletConnect";
 import { X402BatchSettlementFooter } from "./X402BatchSettlementFooter";
 
 const publicClient = createPublicClient({
-  chain: baseSepolia,
+  chain: CHAIN,
   transport: http(),
 });
 

@@ -7,9 +7,7 @@ import {
   parseEventLogs,
   type Hash,
 } from "viem";
-import { baseSepolia } from "viem/chains";
-
-import { RECEIVER_ADDRESS, USDC_ADDRESS } from "../x402/config";
+import { CHAIN, RECEIVER_ADDRESS, USDC_ADDRESS } from "../x402/config";
 
 const settledEventAbi = [
   {
@@ -27,7 +25,7 @@ const settledEventAbi = [
 export async function getSettledAmountFromReceipt(transactionHash: Hash): Promise<bigint> {
 
   const client = createPublicClient({
-    chain: baseSepolia,
+    chain: CHAIN,
     transport: http(),
   });
 
