@@ -324,7 +324,8 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
       }
 
       if (state.phase !== "game-over") {
-        render(ctx, state);
+        const alpha = acc / STEP;
+        render(ctx, state, alpha);
 
         if (state.frameCount % 10 === 0) {
           setHudState({

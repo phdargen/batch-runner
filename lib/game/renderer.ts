@@ -36,11 +36,21 @@ function getBackgroundGradient(
   return grad;
 }
 
-export function render(ctx: CanvasRenderingContext2D, state: GameState) {
+/**
+ * Draws the current frame. `alpha` is the fraction (0..1) of a fixed simulation
+ * step that has elapsed since the last `tick`, used to extrapolate moving
+ * entities so motion stays smooth on displays whose refresh rate does not match
+ * the fixed timestep (e.g. 120Hz mobile screens). It never affects game logic.
+ */
+export function render(ctx: CanvasRenderingContext2D, state: GameState, alpha = 0) {
   const width = GAME_VIEWPORT_WIDTH;
   const height = GAME_VIEWPORT_HEIGHT;
   const groundY = getGroundY(height);
   const zone = getVisualZone(state.distance);
+
+  // The world only scrolls while running, so only extrapolate the scroll then.
+  const scrollShift = state.phase === "running" ? alpha * state.speed : 0;
+  const groundScroll = state.groundOffset + scrollShift;
 
   ctx.save();
 
@@ -51,7 +61,7 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.translate(shakeX, shakeY);
   }
 
-  const hasNyBackground = drawNyBackground(ctx, width, height, state.groundOffset);
+  const hasNyBackground = drawNyBackground(ctx, width, height, groundScroll);
   if (!hasNyBackground) {
     ctx.fillStyle = getBackgroundGradient(ctx, zone, height);
     ctx.fillRect(0, 0, width, height);
@@ -75,20 +85,20 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
 
   const floorGaps = state.obstacles
     .filter((obs) => obs.type === "gap")
-    .map((obs) => ({ x: obs.x, width: obs.width }));
+    .map((obs) => ({ x: obs.x - scrollShift, width: obs.width }));
 
   drawFloorWithGaps(ctx, width, groundY, height, floorGaps, () => {
-    drawGlowFloor(ctx, width, groundY, state.groundOffset);
+    drawGlowFloor(ctx, width, groundY, groundScroll);
   });
 
   // Floating platforms
   for (const platform of state.platforms) {
-    drawPlatformSet(ctx, platform.x, groundY, platform.elev, platform.tileCount);
+    drawPlatformSet(ctx, platform.x - scrollShift, groundY, platform.elev, platform.tileCount);
   }
 
   // Dino
   const dinoX = 80;
-  const dinoScreenY = groundY - DINO_HEIGHT + state.dinoY;
+  const dinoScreenY = groundY - DINO_HEIGHT + state.dinoY + alpha * state.dinoVelocity;
   drawDino(
     ctx,
     dinoX,
@@ -101,7 +111,9 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState) {
     ctx.save();
     ctx.globalAlpha = p.life / p.maxLife;
     ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    const px = p.x + alpha * p.vx;
+    const py = p.y + alpha * p.vy;
+    ctx.fillRect(px - p.size / 2, py - p.size / 2, p.size, p.size);
     ctx.restore();
   }
 
