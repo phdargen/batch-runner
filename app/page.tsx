@@ -6,6 +6,7 @@ import { DepositFlow, type SessionInfo } from "@/components/DepositFlow";
 import { Game } from "@/components/Game";
 import { buildGameChannelConfig } from "@/lib/x402/channel";
 import { NEXT_DEV, RECEIVER_ADDRESS, roundBudgetUnits } from "@/lib/x402/config";
+import { prepareNextRunSession } from "@/lib/x402/runSession";
 import { LocalStorageChannelStorage } from "@/lib/x402/browserStorage";
 import {
   createStoredSessionKey,
@@ -20,6 +21,7 @@ export default function Home() {
   const [authSession, setAuthSession] = useState<BaseAuthSession | null>(null);
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [gameKey, setGameKey] = useState(0);
+  const [autoStart, setAutoStart] = useState(false);
 
   useEffect(() => {
     if (!NEXT_DEV) return;
@@ -27,15 +29,25 @@ export default function Home() {
     setSession(createDevSession());
   }, []);
 
-  const handlePlayAgain = () => {
-    if (NEXT_DEV) {
-      setSession(createDevSession());
+  const handlePlayAgain = async () => {
+    if (!session) return;
+
+    const next = await prepareNextRunSession(session);
+    if (!next) {
+      setAutoStart(false);
+      setSession(null);
       setGameKey(k => k + 1);
       return;
     }
 
-    setSession(null);
+    setAutoStart(true);
+    setSession(next);
     setGameKey(k => k + 1);
+  };
+
+  const handleSessionReady = (nextSession: SessionInfo) => {
+    setAutoStart(false);
+    setSession(nextSession);
   };
 
   const handleSignOut = () => {
@@ -58,20 +70,39 @@ export default function Home() {
             </span>
           )}
         </div>
-        <Game key={gameKey} session={session} onPlayAgain={handlePlayAgain} />
+        <Game key={gameKey} session={session} onPlayAgain={handlePlayAgain} autoStart={autoStart} />
       </main>
     );
   }
 
+  const isLoginPage = !NEXT_DEV && !authSession;
+  const isDepositPage = !NEXT_DEV && !!authSession;
+
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-4 py-8">
-      <div className="w-full max-w-2xl">
+    <main
+      className={`min-h-dvh flex flex-col items-center px-4 ${
+        isDepositPage ? "relative overflow-hidden" : "justify-center py-8"
+      } ${isLoginPage ? "bg-black" : ""}`}
+    >
+      {isDepositPage && (
+        <>
+          <div
+            className="absolute inset-0 bg-[var(--color-base-blue-dark)] bg-cover bg-center bg-no-repeat"
+            style={{ backgroundImage: "url(/bkg.png)" }}
+            aria-hidden
+          />
+          <div className="absolute inset-0 bg-[var(--color-base-blue-dark)]/60" aria-hidden />
+        </>
+      )}
+      <div
+        className={`w-full ${isDepositPage ? "max-w-4xl relative z-10 min-h-dvh" : isLoginPage ? "max-w-4xl" : "max-w-2xl"}`}
+      >
         {NEXT_DEV ? (
           <DevLoading />
         ) : !authSession ? (
-          <Landing />
+          <Landing onSignIn={setAuthSession} onSignOut={handleSignOut} />
         ) : (
-          <DepositFlow authSession={authSession} onSessionReady={setSession} />
+          <DepositFlow authSession={authSession} onSessionReady={handleSessionReady} />
         )}
       </div>
     </main>
@@ -113,34 +144,17 @@ function DevLoading() {
   );
 }
 
-function Landing() {
+function Landing({
+  onSignIn,
+  onSignOut,
+}: {
+  onSignIn: (session: BaseAuthSession) => void;
+  onSignOut: () => void;
+}) {
   return (
-    <div className="animate-slide-up flex flex-col items-center gap-6 py-16">
-      <div className="text-6xl">🤖</div>
-      <h2 className="text-3xl font-bold text-center">
-        <span className="text-[var(--color-base-blue)]">Batch</span> Runner
-      </h2>
-      <p className="text-sm text-[var(--color-text-secondary)] text-center max-w-sm leading-relaxed">
-        A Chrome-dino-style game powered by x402 batch-settlement. Deposit $0.01 per play, each jump
-        costs $0.001 via a signed voucher. No gas fees, no wallet popups during gameplay.
-      </p>
-      <div className="grid grid-cols-3 gap-6 text-center text-xs mt-2">
-        <div>
-          <div className="text-2xl mb-1">💰</div>
-          <div className="text-[var(--color-text-secondary)]">$0.001 per jump</div>
-        </div>
-        <div>
-          <div className="text-2xl mb-1">⚡</div>
-          <div className="text-[var(--color-text-secondary)]">~0.1ms signing</div>
-        </div>
-        <div>
-          <div className="text-2xl mb-1">🔒</div>
-          <div className="text-[var(--color-text-secondary)]">Session keys</div>
-        </div>
-      </div>
-      <p className="text-xs text-[var(--color-text-secondary)] mt-4">
-        Sign in with Base to start playing
-      </p>
+    <div className="landing-screen">
+      <img src="/logo.png" alt="Batch Runner" className="landing-logo" width={1536} height={1024} />
+      <WalletConnect session={null} onSignIn={onSignIn} onSignOut={onSignOut} />
     </div>
   );
 }

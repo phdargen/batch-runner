@@ -1,5 +1,9 @@
 const STORAGE_PREFIX = "x402:batch-runner:channel:";
 
+function channelStorageKey(channelId: string): string {
+  return channelId.toLowerCase();
+}
+
 export type BatchSettlementClientContext = {
   chargedCumulativeAmount?: string;
   balance?: string;
@@ -15,7 +19,7 @@ export type BatchSettlementClientContext = {
 export class LocalStorageChannelStorage {
   async get(key: string): Promise<BatchSettlementClientContext | undefined> {
     if (typeof window === "undefined") return undefined;
-    const raw = localStorage.getItem(STORAGE_PREFIX + key);
+    const raw = localStorage.getItem(STORAGE_PREFIX + channelStorageKey(key));
     if (!raw) return undefined;
     try {
       return JSON.parse(raw) as BatchSettlementClientContext;
@@ -26,12 +30,12 @@ export class LocalStorageChannelStorage {
 
   async set(key: string, context: BatchSettlementClientContext): Promise<void> {
     if (typeof window === "undefined") return;
-    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(context));
+    localStorage.setItem(STORAGE_PREFIX + channelStorageKey(key), JSON.stringify(context));
   }
 
   async delete(key: string): Promise<void> {
     if (typeof window === "undefined") return;
-    localStorage.removeItem(STORAGE_PREFIX + key);
+    localStorage.removeItem(STORAGE_PREFIX + channelStorageKey(key));
   }
 }
 

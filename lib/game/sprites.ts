@@ -46,6 +46,9 @@ const DINO_FRAME_BOUNDS: DinoFrameBounds[] = [
   { x: 50, y: 32, width: 247, height: 267 },
 ];
 
+/** Atlas frame shown during an active jump arc (see renderer getDinoSpriteFrame). */
+export const DINO_JUMP_FRAME = 3;
+
 /** Uniform on-screen width for all dino3 walk frames. */
 const DINO_WALK_DRAW_WIDTH =
   DINO_SPRITE_DRAW_HEIGHT * (DINO_FRAME_BOUNDS[0].width / DINO_FRAME_BOUNDS[0].height);
@@ -207,6 +210,36 @@ export function drawDino(
   }
 
   drawDinoAtlasFrame(ctx, x, y, frame);
+}
+
+export function getDinoAtlasFrameBackground(
+  frame: number,
+  displayHeight = DINO_SPRITE_DRAW_HEIGHT,
+): {
+  width: number;
+  height: number;
+  backgroundImage: string;
+  backgroundSize: string;
+  backgroundPosition: string;
+} {
+  const safeFrame =
+    ((frame % DINO_SPRITE_FRAME_COUNT) + DINO_SPRITE_FRAME_COUNT) % DINO_SPRITE_FRAME_COUNT;
+  const frameBounds = DINO_FRAME_BOUNDS[safeFrame]!;
+  const sourceX = (safeFrame % DINO_SPRITE_COLUMNS) * DINO_SPRITE_CELL_WIDTH + frameBounds.x;
+  const sourceY =
+    Math.floor(safeFrame / DINO_SPRITE_COLUMNS) * DINO_SPRITE_CELL_HEIGHT + frameBounds.y;
+  const scale = displayHeight / frameBounds.height;
+  const sheetWidth = DINO_SPRITE_COLUMNS * DINO_SPRITE_CELL_WIDTH;
+  const sheetHeight =
+    Math.ceil(DINO_SPRITE_FRAME_COUNT / DINO_SPRITE_COLUMNS) * DINO_SPRITE_CELL_HEIGHT;
+
+  return {
+    width: displayHeight * (frameBounds.width / frameBounds.height),
+    height: displayHeight,
+    backgroundImage: `url(${DINO_SPRITE_SRC})`,
+    backgroundSize: `${sheetWidth * scale}px ${sheetHeight * scale}px`,
+    backgroundPosition: `-${sourceX * scale}px -${sourceY * scale}px`,
+  };
 }
 
 export function drawGasPump(ctx: CanvasRenderingContext2D, x: number, y: number) {

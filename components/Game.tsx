@@ -12,18 +12,23 @@ import {
   tryLockLandscape,
   type ViewportLayout,
 } from "@/lib/game/viewport";
-import { JUMP_COST_UNITS, NEXT_DEV, VOUCHER_CHECKPOINT_JUMPS } from "@/lib/x402/config";
+import { JUMP_COST_UNITS, NEXT_DEV, roundBudgetUnits, VOUCHER_CHECKPOINT_JUMPS } from "@/lib/x402/config";
 import { signGameVoucher, verifyGameVoucher } from "@/lib/x402/channel";
 import type { SessionInfo } from "./DepositFlow";
 import { GameHUD } from "./GameHUD";
 import { GameOver } from "./GameOver";
 
+function jumpsFromBalance(balance: bigint): number {
+  return Math.floor(Number(balance) / Number(JUMP_COST_UNITS));
+}
+
 type GameProps = {
   session: SessionInfo;
   onPlayAgain: () => void;
+  autoStart?: boolean;
 };
 
-export function Game({ session, onPlayAgain }: GameProps) {
+export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -50,10 +55,11 @@ export function Game({ session, onPlayAgain }: GameProps) {
     signature: `0x${string}`;
   } | null>(null);
 
+  const maxJumps = jumpsFromBalance(roundBudgetUnits());
+  const startingJumps = jumpsFromBalance(session.roundBudget);
   const [hudState, setHudState] = useState({
-    balance: Number(balanceRef.current),
     distance: 0,
-    voucherCount: 0,
+    remainingJumps: startingJumps,
   });
   const [gameOver, setGameOver] = useState(false);
   const [rank, setRank] = useState<number | null>(null);
@@ -168,7 +174,10 @@ export function Game({ session, onPlayAgain }: GameProps) {
   const endGame = useCallback(() => {
     stateRef.current.phase = "game-over";
     setGameOver(true);
-    setHudState(prev => ({ ...prev, balance: Number(balanceRef.current) }));
+    setHudState(prev => ({
+      ...prev,
+      remainingJumps: jumpsFromBalance(balanceRef.current),
+    }));
     cancelAnimationFrame(animRef.current);
     void flushVoucherCheckpoint(true);
   }, [flushVoucherCheckpoint]);
@@ -284,9 +293,8 @@ export function Game({ session, onPlayAgain }: GameProps) {
 
         if (state.frameCount % 10 === 0) {
           setHudState({
-            balance: Number(balanceRef.current),
             distance: state.distance,
-            voucherCount: jumpCountRef.current,
+            remainingJumps: jumpsFromBalance(balanceRef.current),
           });
         }
       }
@@ -322,6 +330,12 @@ export function Game({ session, onPlayAgain }: GameProps) {
     if (!started) return;
     tryLockLandscape();
   }, [started]);
+
+  useEffect(() => {
+    if (!autoStart || startedRef.current) return;
+    startedRef.current = true;
+    setStarted(true);
+  }, [autoStart]);
 
   // Input handling
   useEffect(() => {
@@ -435,9 +449,9 @@ export function Game({ session, onPlayAgain }: GameProps) {
         }}
       >
         <GameHUD
-          balance={hudState.balance}
           distance={hudState.distance}
-          voucherCount={hudState.voucherCount}
+          remainingJumps={hudState.remainingJumps}
+          maxJumps={maxJumps}
         />
 
         <canvas ref={canvasRef} className="block" />
@@ -457,7 +471,6 @@ export function Game({ session, onPlayAgain }: GameProps) {
           <GameOver
             distance={stateRef.current.distance}
             voucherCount={jumpCountRef.current}
-            totalSpent={Number(roundSpentRef.current)}
             rank={rank}
             onPlayAgain={onPlayAgain}
           />

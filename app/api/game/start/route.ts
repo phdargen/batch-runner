@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { withX402 } from "@x402/next";
+import { setSettlementOverrides } from "@x402/next";
 import { server, receiverAddress } from "@/lib/server/x402";
+import { withX402Route } from "@/lib/server/withX402Route";
 import { NETWORK, JUMP_PRICE } from "@/lib/x402/config";
 
 export const runtime = "nodejs";
 
 const handler = async (_: NextRequest) => {
-  return NextResponse.json({ ok: true, message: "Channel funded — game on!" }, { status: 200 });
+  const res = NextResponse.json({ ok: true, message: "Channel funded — game on!" });
+  setSettlementOverrides(res, { amount: "0" });
+  return res;
 };
 
-export const GET = withX402(
+export const GET = withX402Route(
   handler,
   {
     accepts: [

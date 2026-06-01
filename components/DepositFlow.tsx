@@ -8,15 +8,17 @@ import { createPublicClient, http } from "viem";
 import { baseSepolia } from "viem/chains";
 import type { ChannelConfig } from "@x402/evm";
 import { BATCH_SETTLEMENT_ADDRESS } from "@x402/evm";
-import { BatchSettlementEvmScheme, computeChannelId } from "@x402/evm/batch-settlement/client";
+import {
+  BatchSettlementEvmScheme,
+  computeChannelId,
+  processPaymentResponse,
+  updateChannelAfterRefund,
+} from "@x402/evm/batch-settlement/client";
 import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
 import {
-  JUMP_PRICE,
-  MAX_PLAY_CREDITS,
-  MIN_PLAY_CREDITS,
+  JUMP_COST_UNITS,
   NETWORK,
   NEXT_DEV,
-  PLAY_PRICE,
   PLAY_PRICE_UNITS,
   roundBudgetUnits,
   RECEIVER_ADDRESS,
@@ -53,6 +55,16 @@ const channelsAbi = [
       { name: "totalClaimed", type: "uint256" },
     ],
   },
+] as const;
+
+const JUMP_PRESETS = [10, 20, 50, 100] as const;
+const DEFAULT_JUMPS = 20;
+const MAX_CUSTOM_JUMPS = 1000;
+
+const RULE_HINTS = [
+  { key: "pay-per-jump", label: "Pay per jump", icon: PayPerJumpIcon },
+  { key: "per-run", label: "Max 10 / run", icon: PerRunIcon },
+  { key: "carryover", label: "Unused carry over", icon: CarryOverIcon },
 ] as const;
 
 const readContract = publicClient.readContract as (
@@ -117,16 +129,21 @@ type ChannelSnapshot = {
 export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
   const [storedSession, setStoredSession] = useState<StoredSessionKey | null>(null);
   const [snapshot, setSnapshot] = useState<ChannelSnapshot | null>(null);
-  const [selectedCredits, setSelectedCredits] = useState(MIN_PLAY_CREDITS);
+  const [presetJumps, setPresetJumps] = useState<number>(DEFAULT_JUMPS);
+  const [customMode, setCustomMode] = useState(false);
+  const [customInput, setCustomInput] = useState("");
   const [status, setStatus] = useState<"loading" | "idle" | "depositing" | "refunding">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [refundConfirmOpen, setRefundConfirmOpen] = useState(false);
 
   const storage = useMemo(() => new LocalStorageChannelStorage(), []);
   const topUpStorage = useMemo(() => new TopUpChannelStorage(), []);
 
-  const selectedDeposit = BigInt(selectedCredits) * PLAY_PRICE_UNITS;
+  const customJumps = parseCustomJumps(customInput);
+  const selectedJumps = customMode ? customJumps : presetJumps;
+  const selectedDeposit = BigInt(selectedJumps) * JUMP_COST_UNITS;
   const hasChannel = Boolean(snapshot?.channelId && snapshot.channelConfig);
-  const canStart = hasChannel && (NEXT_DEV || (snapshot?.availableBalance ?? 0n) >= PLAY_PRICE_UNITS);
+  const canStart = hasChannel && (NEXT_DEV || (snapshot?.availableBalance ?? 0n) >= JUMP_COST_UNITS);
   const { voucherSigner } = storedSession
     ? signerFromStoredSession(storedSession)
     : { voucherSigner: null };
@@ -148,6 +165,9 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
   const startSession = () => {
     if (!storedSession || !voucherSigner) return;
 
+    const available = snapshot?.availableBalance ?? 0n;
+    const perRunBudget = NEXT_DEV ? roundBudgetUnits() : minBigInt(available, roundBudgetUnits());
+
     onSessionReady({
       channelSalt: storedSession.channelSalt,
       sessionAddress: storedSession.sessionAddress,
@@ -157,7 +177,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
       channelConfig: snapshot?.channelConfig ?? null,
       channelBalance: snapshot?.balance ?? PLAY_PRICE_UNITS,
       chargedCumulativeAmount: snapshot?.chargedCumulativeAmount ?? 0n,
-      roundBudget: roundBudgetUnits(),
+      roundBudget: perRunBudget,
       storage,
     });
   };
@@ -186,6 +206,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
         throw new Error(`Deposit failed (${response.status}): ${text}`);
       }
 
+      await processPaymentResponse(fundingStorage, name => response.headers.get(name));
       await refreshChannel(storedSession, readSettledChannelId(response));
     } catch (err) {
       console.error("[batch-runner] Deposit error:", err);
@@ -198,13 +219,20 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
   const requestRefund = async () => {
     if (!storedSession) return;
 
+    setRefundConfirmOpen(false);
     setStatus("refunding");
     setError(null);
 
     try {
+      const channelId = snapshot?.channelId;
+      if (!channelId) {
+        throw new Error("No funded channel to refund");
+      }
+
       const batchedScheme = createBatchedScheme(storedSession, storage, selectedDeposit);
-      await batchedScheme.refund(`${window.location.origin}/api/game/start`);
-      await refreshChannel(storedSession);
+      const settleResponse = await batchedScheme.refund(`${window.location.origin}/api/game/start`);
+      await updateChannelAfterRefund(storage, channelId.toLowerCase(), settleResponse.extra ?? {});
+      await refreshChannel(storedSession, channelId);
     } catch (err) {
       console.error("[batch-runner] Refund error:", err);
       setError(err instanceof Error ? err.message : "Failed to request refund");
@@ -280,7 +308,10 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
       args: [channelId],
     })) as [bigint, bigint];
 
-    if (balance === 0n && totalClaimed === 0n) return context;
+    if (balance === 0n) {
+      await storage.delete(channelId);
+      return undefined;
+    }
 
     const recoveredCharged =
       BigInt(context?.chargedCumulativeAmount ?? "0") > totalClaimed
@@ -312,101 +343,191 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
     });
   }
 
-  const balanceFormatted = formatUsdc(snapshot?.availableBalance ?? 0n);
-  const spentFormatted = formatUsdc(snapshot?.chargedCumulativeAmount ?? 0n);
-  const selectedDepositFormatted = formatUsdc(selectedDeposit);
+  const availableBalance = snapshot?.availableBalance ?? 0n;
+  const balanceJumps = jumpsFromUnits(availableBalance);
+  const isBusy = status !== "idle";
+  const showRefund = availableBalance > 0n;
+  const selectedValid = selectedJumps > 0;
+  const selectedPrice = formatUsdc(selectedDeposit);
 
   return (
-    <div
-      className="animate-slide-up flex flex-col items-center gap-6 p-8 rounded-2xl
-                    bg-[var(--color-surface-light)] border border-[var(--color-surface-lighter)]"
-    >
-      <div className="text-center">
-        <h2 className="text-xl font-bold mb-2">Start a Game Session</h2>
-        <p className="text-sm text-[var(--color-text-secondary)] max-w-xs leading-relaxed">
-          {NEXT_DEV
-            ? "Dev mode: deposit skipped. Base Account sign-in creates your session key."
-            : `Deposit ${PLAY_PRICE} per play into your game channel. Each jump costs ${JUMP_PRICE} via a signed voucher.`}
-        </p>
+    <div className="deposit-flow animate-slide-up">
+      <img src="/logo.png" alt="Batch Runner" className="deposit-logo" width={1536} height={1024} />
+
+      <div className="deposit-card">
+        <div className="deposit-card-fx" aria-hidden />
+        <div className="deposit-card-body">
+          <p className="deposit-intro">
+            Batch jumps to run through Base City.
+            <br />
+            <br />
+            How far can you get Rex402 with 100 jumps? Make them count.
+          </p>
+
+          <div className="deposit-run-row">
+            <img
+              src="/jetpack.png"
+              alt=""
+              className="deposit-jetpack"
+              width={128}
+              height={128}
+              aria-hidden
+            />
+            <div className="deposit-balance">
+              {status === "loading" ? (
+                <span className="deposit-balance-count tabular-nums" aria-busy="true">
+                  …
+                </span>
+              ) : (
+                <span className="deposit-balance-count tabular-nums">{balanceJumps}</span>
+              )}
+              <span className="deposit-balance-unit">jumps in tank</span>
+            </div>
+            {showRefund && status !== "loading" && (
+              <button
+                type="button"
+                onClick={() => setRefundConfirmOpen(true)}
+                disabled={isBusy}
+                aria-label="Refund remaining jumps"
+                className="deposit-refund-hint"
+              >
+                <RefundIcon />
+                <span>{status === "refunding" ? "…" : "Refund"}</span>
+              </button>
+            )}
+          </div>
+
+          <ul className="deposit-hints" aria-label="How jumps work">
+            {RULE_HINTS.map(({ key, label, icon: Icon }) => (
+              <li key={key} className="deposit-hint">
+                <Icon />
+                <span>{label}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="deposit-picker" role="group" aria-label="Jumps to add">
+            {JUMP_PRESETS.map(jumps => {
+              const active = !customMode && presetJumps === jumps;
+
+              return (
+                <button
+                  key={jumps}
+                  type="button"
+                  disabled={isBusy}
+                  aria-pressed={active}
+                  aria-label={`${jumps} jumps`}
+                  onClick={() => {
+                    setCustomMode(false);
+                    setPresetJumps(jumps);
+                  }}
+                  className={`deposit-option ${active ? "deposit-option-active" : ""}`}
+                >
+                  <span className="deposit-option-count tabular-nums">{jumps}</span>
+                  <span className="deposit-option-unit">jumps</span>
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              disabled={isBusy}
+              aria-pressed={customMode}
+              aria-label="Custom amount of jumps"
+              onClick={() => setCustomMode(true)}
+              className={`deposit-option ${customMode ? "deposit-option-active" : ""}`}
+            >
+              <span className="deposit-option-count">···</span>
+              <span className="deposit-option-unit">custom</span>
+            </button>
+          </div>
+
+          {customMode && (
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={MAX_CUSTOM_JUMPS}
+              step={1}
+              autoFocus
+              disabled={isBusy}
+              value={customInput}
+              onChange={event => setCustomInput(event.target.value)}
+              placeholder={`Jumps (1–${MAX_CUSTOM_JUMPS})`}
+              aria-label="Custom jump count"
+              className="deposit-custom"
+            />
+          )}
+
+          <div className="deposit-actions">
+            <button
+              type="button"
+              onClick={fundChannel}
+              disabled={NEXT_DEV || status === "loading" || isBusy || !selectedValid}
+              className="deposit-btn deposit-btn-secondary"
+            >
+              {status === "depositing"
+                ? "…"
+                : selectedValid
+                  ? `Add ${selectedJumps} · $${selectedPrice}`
+                  : "Add jumps"}
+            </button>
+
+            <button
+              type="button"
+              onClick={startSession}
+              disabled={!canStart || isBusy}
+              className="deposit-btn deposit-btn-primary"
+            >
+              Play
+            </button>
+          </div>
+
+          {error && <p className="deposit-error">{error}</p>}
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 text-center text-xs">
-        <div className="p-3 rounded-lg bg-[var(--color-surface)]">
-          <div className="text-[var(--color-base-blue)] font-bold text-lg">${balanceFormatted}</div>
-          <div className="text-[var(--color-text-secondary)] mt-1">Remaining</div>
-        </div>
-        <div className="p-3 rounded-lg bg-[var(--color-surface)]">
-          <div className="text-[var(--color-accent-green)] font-bold text-lg">${spentFormatted}</div>
-          <div className="text-[var(--color-text-secondary)] mt-1">Spent</div>
-        </div>
-        <div className="p-3 rounded-lg bg-[var(--color-surface)]">
-          <div className="text-[var(--color-accent-orange)] font-bold text-lg">{JUMP_PRICE}</div>
-          <div className="text-[var(--color-text-secondary)] mt-1">Per jump</div>
-        </div>
-      </div>
-
-      <label className="w-full max-w-xs text-xs text-[var(--color-text-secondary)]">
-        Plays to deposit:{" "}
-        <span className="font-bold text-white">
-          {selectedCredits} (${selectedDepositFormatted})
-        </span>
-        <input
-          type="range"
-          min={MIN_PLAY_CREDITS}
-          max={MAX_PLAY_CREDITS}
-          value={selectedCredits}
-          onChange={event => setSelectedCredits(Number(event.target.value))}
-          className="mt-3 w-full accent-[var(--color-base-blue)]"
-        />
-      </label>
-
-      <div className="flex flex-col sm:flex-row gap-3">
-        <button
-          onClick={fundChannel}
-          disabled={
-            NEXT_DEV ||
-            status === "loading" ||
-            status === "depositing" ||
-            status === "refunding"
-          }
-          className="px-6 py-3 border border-[var(--color-base-blue)] text-[var(--color-base-blue)]
-                     rounded-xl font-bold text-sm hover:bg-[var(--color-base-blue)]/10 transition-colors
-                     disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+      {refundConfirmOpen && (
+        <div
+          className="deposit-confirm-backdrop"
+          role="presentation"
+          onClick={() => !isBusy && setRefundConfirmOpen(false)}
         >
-          {status === "depositing"
-            ? "Depositing..."
-            : `Deposit ${selectedCredits} Play${selectedCredits === 1 ? "" : "s"}`}
-        </button>
-
-        <button
-          onClick={startSession}
-          disabled={!canStart || status !== "idle"}
-          className="px-6 py-3 bg-[var(--color-base-blue)] text-white rounded-xl font-bold text-sm
-                     hover:bg-[var(--color-base-blue-dark)] transition-colors
-                     disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-        >
-          Start Game
-        </button>
-      </div>
-
-      <button
-        onClick={requestRefund}
-        disabled={(snapshot?.availableBalance ?? 0n) === 0n || status !== "idle"}
-        className="px-4 py-2 text-xs border border-[var(--color-text-secondary)] rounded-lg
-                   hover:border-[var(--color-accent-red)] hover:text-[var(--color-accent-red)]
-                   transition-colors
-                   disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-      >
-        {status === "refunding" ? "Requesting refund..." : "Request Refund"}
-      </button>
-
-      <p className="text-xs text-[var(--color-text-secondary)] text-center max-w-xs">
-        {NEXT_DEV
-          ? "NEXT_DEV=true — no login or on-chain deposit needed for gameplay testing."
-          : "Deposits use one ERC-3009 authorization. Gameplay signs vouchers with a browser-only session key."}
-      </p>
-
-      {error && <p className="text-xs text-[var(--color-accent-red)]">{error}</p>}
+          <div
+            className="deposit-confirm"
+            role="alertdialog"
+            aria-labelledby="deposit-refund-title"
+            aria-describedby="deposit-refund-desc"
+            onClick={event => event.stopPropagation()}
+          >
+            <h2 id="deposit-refund-title" className="deposit-confirm-title">
+              Refund jumps?
+            </h2>
+            <p id="deposit-refund-desc" className="deposit-confirm-body">
+              {balanceJumps} unused {balanceJumps === 1 ? "jump" : "jumps"} (${formatUsdc(availableBalance)})
+              will be returned to your wallet.
+            </p>
+            <div className="deposit-confirm-actions">
+              <button
+                type="button"
+                className="deposit-btn deposit-btn-secondary"
+                disabled={isBusy}
+                onClick={() => setRefundConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="deposit-btn deposit-btn-primary"
+                disabled={isBusy}
+                onClick={requestRefund}
+              >
+                {status === "refunding" ? "Refunding…" : "Confirm refund"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -443,4 +564,53 @@ function getDebugChannel(
 
 function formatUsdc(amount: bigint): string {
   return (Number(amount) / 1e6).toFixed(3);
+}
+
+function jumpsFromUnits(amount: bigint): number {
+  return Math.floor(Number(amount) / Number(JUMP_COST_UNITS));
+}
+
+function minBigInt(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
+}
+
+function parseCustomJumps(value: string): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.min(parsed, MAX_CUSTOM_JUMPS);
+}
+
+function CarryOverIcon() {
+  return (
+    <svg className="deposit-hint-icon" viewBox="0 0 24 24" aria-hidden focusable="false">
+      <path d="M4 12a8 8 0 0 1 13.66-5.66M20 5v4h-4" />
+      <path d="M20 12a8 8 0 0 1-13.66 5.66M4 19v-4h4" />
+    </svg>
+  );
+}
+
+function PerRunIcon() {
+  return (
+    <svg className="deposit-hint-icon" viewBox="0 0 24 24" aria-hidden focusable="false">
+      <path d="M13 2 4 14h6l-1 8 9-12h-6z" />
+    </svg>
+  );
+}
+
+function PayPerJumpIcon() {
+  return (
+    <svg className="deposit-hint-icon" viewBox="0 0 24 24" aria-hidden focusable="false">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 12.5 11 15l4.5-5" />
+    </svg>
+  );
+}
+
+function RefundIcon() {
+  return (
+    <svg className="deposit-hint-icon" viewBox="0 0 24 24" aria-hidden focusable="false">
+      <path d="M3 10h10a4 4 0 0 1 0 8H9" />
+      <path d="M7 6 3 10l4 4" />
+    </svg>
+  );
 }

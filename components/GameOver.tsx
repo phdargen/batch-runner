@@ -1,58 +1,100 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { Leaderboard } from "@/components/Leaderboard";
+import { DINO_JUMP_FRAME, getDinoAtlasFrameBackground } from "@/lib/game/sprites";
+
 type GameOverProps = {
   distance: number;
   voucherCount: number;
-  totalSpent: number;
   rank: number | null;
   onPlayAgain: () => void;
 };
 
-export function GameOver({
-  distance,
-  voucherCount,
-  totalSpent,
-  rank,
-  onPlayAgain,
-}: GameOverProps) {
+const DINO_DISPLAY_HEIGHT = 72;
+const dinoSprite = getDinoAtlasFrameBackground(DINO_JUMP_FRAME, DINO_DISPLAY_HEIGHT);
+
+export function GameOver({ distance, voucherCount, rank, onPlayAgain }: GameOverProps) {
   const distanceFormatted = Math.floor(distance).toLocaleString();
-  const spentFormatted = (totalSpent / 1e6).toFixed(2);
-  const costPerMeter = distance > 0 ? (totalSpent / 1e6 / distance).toFixed(6) : "0";
+  const leaderboardRef = useRef<HTMLDivElement>(null);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+
+  useEffect(() => {
+    if (!showLeaderboard) return;
+    leaderboardRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [showLeaderboard]);
+
+  const scrollToLeaderboard = () => {
+    setShowLeaderboard(true);
+  };
 
   return (
-    <div className="absolute inset-0 flex items-center justify-center z-20
-                    bg-black/70 backdrop-blur-sm">
-      <div className="animate-slide-up flex flex-col items-center gap-5 p-8 rounded-2xl
-                      bg-[var(--color-surface-light)] border border-[var(--color-surface-lighter)]
-                      max-w-sm w-full mx-4">
-        <h2 className="text-2xl font-bold text-[var(--color-accent-red)]">GAME OVER</h2>
+    <div className="absolute inset-0 z-20 overflow-y-auto bg-black/60 backdrop-blur-sm">
+      <div className="min-h-full flex items-center justify-center p-4">
+        <div className="game-over-shell animate-slide-up flex flex-col items-center gap-3 pointer-events-auto">
+          <div className="hud-panel game-over-panel flex items-stretch">
+            <div className="game-over-dino" aria-hidden>
+              <div
+                className="game-over-dino-sprite"
+                style={{
+                  width: dinoSprite.width,
+                  height: dinoSprite.height,
+                  backgroundImage: dinoSprite.backgroundImage,
+                  backgroundSize: dinoSprite.backgroundSize,
+                  backgroundPosition: dinoSprite.backgroundPosition,
+                }}
+              />
+            </div>
 
-        <div className="grid grid-cols-2 gap-4 w-full text-center">
-          <Stat icon="🤖" label="Distance" value={`${distanceFormatted}m`} />
-          <Stat icon="💰" label="Spent" value={`$${spentFormatted} (${voucherCount})`} />
-          <Stat icon="⚡" label="Cost/meter" value={`$${costPerMeter}`} />
-          {rank !== null && <Stat icon="🏆" label="Rank" value={`#${rank}`} />}
+            <div className="game-over-perforation" aria-hidden />
+
+            <div className="game-over-voucher">
+              <VoucherStat label="Distance" value={distanceFormatted} unit="m" highlight />
+              <VoucherStat label="Jumps" value={String(voucherCount)} />
+              {rank !== null && <VoucherStat label="Rank" value={`#${rank}`} />}
+            </div>
+          </div>
+
+          <div className="game-over-actions">
+            <button type="button" onClick={onPlayAgain} className="game-over-replay">
+              Play Again
+            </button>
+            <button type="button" onClick={scrollToLeaderboard} className="game-over-replay game-over-secondary">
+              Leaderboard
+            </button>
+          </div>
+
+          {showLeaderboard && (
+            <div ref={leaderboardRef} id="leaderboard" className="game-over-leaderboard">
+              <Leaderboard />
+            </div>
+          )}
         </div>
-
-        <button
-          onClick={onPlayAgain}
-          className="w-full px-4 py-2.5 text-sm bg-[var(--color-base-blue)] text-white rounded-xl
-                     font-bold hover:bg-[var(--color-base-blue-dark)] transition-colors cursor-pointer"
-        >
-          Play Again
-        </button>
       </div>
     </div>
   );
 }
 
-function Stat({ icon, label, value }: { icon: string; label: string; value: string }) {
+function VoucherStat({
+  label,
+  value,
+  unit,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  highlight?: boolean;
+}) {
   return (
-    <div className="p-3 rounded-lg bg-[var(--color-surface)]">
-      <div className="text-lg font-bold">
-        {icon} {value}
+    <div className="game-over-stat">
+      <span className="game-over-stat-label">{label}</span>
+      <div className="flex items-baseline gap-0.5">
+        <span className={highlight ? "hud-distance tabular-nums" : "game-over-stat-value tabular-nums"}>
+          {value}
+        </span>
+        {unit && <span className="hud-unit">{unit}</span>}
       </div>
-      <div className="text-xs text-[var(--color-text-secondary)] mt-0.5">{label}</div>
     </div>
   );
 }
