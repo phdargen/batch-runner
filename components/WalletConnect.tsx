@@ -35,6 +35,10 @@ export function WalletConnect({ session, onSignIn, onSignOut }: WalletConnectPro
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    void preloadBaseProvider();
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     restoreAuthSession()
@@ -62,11 +66,6 @@ export function WalletConnect({ session, onSignIn, onSignOut }: WalletConnectPro
 
     try {
       const provider = await getBaseProvider();
-      await provider.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: `0x${CHAIN_ID.toString(16)}` }],
-      });
-
       const nonce = crypto.randomUUID().replace(/-/g, "");
       const result = (await provider.request({
         method: "wallet_connect",
@@ -149,12 +148,23 @@ export function WalletConnect({ session, onSignIn, onSignOut }: WalletConnectPro
   );
 }
 
-async function getBaseProvider() {
+let baseProviderPromise: Promise<Awaited<ReturnType<typeof createBaseProvider>>> | null = null;
+
+function preloadBaseProvider() {
+  return getBaseProvider();
+}
+
+async function createBaseProvider() {
   const { createBaseAccountSDK } = await import("@base-org/account");
   return createBaseAccountSDK({
     appName: "Batch Runner",
     appChainIds: [CHAIN_ID],
   }).getProvider();
+}
+
+function getBaseProvider() {
+  baseProviderPromise ??= createBaseProvider();
+  return baseProviderPromise;
 }
 
 function buildAuthSession(
