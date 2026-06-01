@@ -132,31 +132,21 @@ function createLazyRedisStorageClient(url: string): LazyRedisStorageClient {
         },
       };
     },
-    hGetAll: key =>
-      ensureClient()
-        .then(client => client.sendCommand(["HGETALL", key]))
-        .then(result => {
-          if (!Array.isArray(result)) throw new Error("Unexpected Redis hash response");
-
-          const values: Record<string, string> = {};
-          for (let i = 0; i < result.length; i += 2) {
-            values[String(result[i])] = String(result[i + 1]);
-          }
-
-          return values;
-        }),
+    hGetAll: key => ensureClient().then(client => client.hGetAll(key)),
     sCard: key =>
       ensureClient()
         .then(client => client.sendCommand(["SCARD", key]))
         .then(count => Number(count)),
     zRevRangeWithScores: (key, start, stop) =>
       ensureClient()
-        .then(client =>
-          client.sendCommand(["ZREVRANGE", key, String(start), String(stop), "WITHSCORES"]),
-        )
+        .then(client => client.zRangeWithScores(key, start, stop, { REV: true }))
         .then(result => {
-          if (!Array.isArray(result)) throw new Error("Unexpected Redis leaderboard response");
-          return result.map(item => String(item));
+          const flat: string[] = [];
+          for (const item of result) {
+            flat.push(String(item.value));
+            flat.push(String(item.score));
+          }
+          return flat;
         }),
   };
 }
