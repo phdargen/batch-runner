@@ -1,4 +1,5 @@
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
+import { bazaarResourceServerExtension } from "@x402/extensions/bazaar";
 import { BatchSettlementEvmScheme } from "@x402/evm/batch-settlement/server";
 import {
   FACILITATOR_URL,
@@ -45,7 +46,9 @@ batchedScheme.enrichSettlementResponse = async ctx => {
   };
 };
 
-export const server = new x402ResourceServer(facilitatorClient).register(NETWORK, batchedScheme);
+export const server = new x402ResourceServer(facilitatorClient)
+  .register(NETWORK, batchedScheme)
+  .registerExtension(bazaarResourceServerExtension);
 export const channelManager = batchedScheme.createChannelManager(facilitatorClient, NETWORK);
 export const storage = channelStorage;
 export const receiverAddress = RECEIVER_ADDRESS;

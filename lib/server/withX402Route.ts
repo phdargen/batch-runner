@@ -10,6 +10,7 @@ import {
   x402HTTPResourceServer,
   x402ResourceServer,
 } from "@x402/core/server";
+import { validateBazaarRouteExtensions } from "@x402/extensions/bazaar";
 import { NextRequest, NextResponse } from "next/server";
 import { handleSettlement } from "./handleSettlement";
 
@@ -84,13 +85,16 @@ function prepareHttpServer(
  */
 export function withX402Route<T = unknown>(
   routeHandler: (request: NextRequest) => Promise<NextResponse<T>>,
+  routePattern: string,
   routeConfig: RouteConfig,
   server: x402ResourceServer,
   paywallConfig?: PaywallConfig,
   paywall?: PaywallProvider,
   syncFacilitatorOnStart = true,
 ): (request: NextRequest) => Promise<NextResponse<T>> {
-  const httpServer = new x402HTTPResourceServer(server, { "*": routeConfig });
+  const routes = { [routePattern]: routeConfig };
+  validateBazaarRouteExtensions(routes);
+  const httpServer = new x402HTTPResourceServer(server, routes);
   const { init } = prepareHttpServer(httpServer, paywall, syncFacilitatorOnStart);
 
   return async (request): Promise<NextResponse<T>> => {
