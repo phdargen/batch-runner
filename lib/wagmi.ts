@@ -8,6 +8,7 @@ export const config = createConfig({
   connectors: [
     baseAccount({
       appName: "Batch Runner",
+      // appLogoUrl: "/logo.png",
     }),
   ],
   storage: createStorage({ storage: cookieStorage }),

@@ -61,15 +61,13 @@ export default function Home() {
   if (isPlaying) {
     return (
       <main className="fixed inset-0 w-full h-dvh overflow-hidden">
-        <div className="absolute top-3 right-3 z-20">
-          {showWallet ? (
-            <WalletConnect session={authSession} onSignIn={setAuthSession} onSignOut={handleSignOut} />
-          ) : (
+        {!showWallet && (
+          <div className="absolute top-3 right-3 z-20">
             <span className="px-3 py-1.5 text-xs border border-[var(--color-base-blue)] rounded-lg text-[var(--color-base-blue)]">
               NEXT_DEV
             </span>
-          )}
-        </div>
+          </div>
+        )}
         <Game key={gameKey} session={session} onPlayAgain={handlePlayAgain} autoStart={autoStart} />
       </main>
     );
@@ -92,6 +90,9 @@ export default function Home() {
             aria-hidden
           />
           <div className="absolute inset-0 bg-[var(--color-base-blue-dark)]/60" aria-hidden />
+          <div className="absolute top-3 right-3 z-20">
+            <WalletConnect session={authSession} onSignIn={setAuthSession} onSignOut={handleSignOut} />
+          </div>
         </>
       )}
       <div

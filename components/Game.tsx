@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { gameAudio } from "@/lib/game/audio";
 import { createInitialState, tick, tryJump } from "@/lib/game/engine";
 import type { EngineCallbacks } from "@/lib/game/engine";
 import { render } from "@/lib/game/renderer";
@@ -70,6 +71,8 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
   });
   const [portraitBlocked, setPortraitBlocked] = useState(false);
   const startedRef = useRef(false);
+  const prevIsJumpingRef = useRef(false);
+  const prevPhaseRef = useRef<GameState["phase"]>("idle");
 
   const currentJumpCost = useCallback((): bigint => JUMP_COST_UNITS, []);
 
@@ -173,6 +176,7 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
 
   const endGame = useCallback(() => {
     stateRef.current.phase = "game-over";
+    gameAudio.playGameOver();
     setGameOver(true);
     setHudState(prev => ({
       ...prev,
@@ -207,6 +211,8 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
         await waitForJumpCooldown();
         const jumped = await tryJump(stateRef.current, callbacks.current);
         if (jumped) {
+          gameAudio.unlock();
+          gameAudio.playJump();
           jumpBufferMsRef.current = 0;
         }
       })
@@ -283,6 +289,15 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
           tick(state, STEP, callbacks.current);
           jumpBufferMsRef.current = Math.max(0, jumpBufferMsRef.current - STEP);
           void attemptBufferedJump();
+
+          if (prevIsJumpingRef.current && !state.isJumping && state.phase === "running") {
+            gameAudio.playLanding();
+          }
+          if (prevPhaseRef.current !== "running" && state.phase === "running") {
+            gameAudio.startLoop();
+          }
+          prevIsJumpingRef.current = state.isJumping;
+          prevPhaseRef.current = state.phase;
         }
         acc -= STEP;
         steps++;
@@ -310,6 +325,7 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
       window.removeEventListener("resize", resizeCanvas);
       resizeObserver.disconnect();
       portraitQuery.removeEventListener("change", syncPortrait);
+      gameAudio.dispose();
       void flushVoucherCheckpoint(true);
     };
   }, [attemptBufferedJump, flushVoucherCheckpoint]);
@@ -349,6 +365,7 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
       if (e.code !== "Space" && e.code !== "ArrowUp") return;
       e.preventDefault();
       if (e.repeat) return;
+      gameAudio.unlock();
       if (!startedRef.current) {
         startedRef.current = true;
         setStarted(true);
@@ -365,6 +382,7 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
 
     const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
+      gameAudio.unlock();
       if (jumpHeldRef.current) return;
       if (!startedRef.current) {
         startedRef.current = true;

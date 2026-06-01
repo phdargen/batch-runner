@@ -6,6 +6,7 @@ import { createWalletClient, custom, getAddress, type WalletClient } from "viem"
 import { baseSepolia } from "viem/chains";
 
 import { CHAIN_ID } from "@/lib/x402/config";
+import { WalletLabel } from "./WalletLabel";
 
 const AUTH_STORAGE_KEY = "x402:batch-runner:base-auth";
 
@@ -118,9 +119,7 @@ export function WalletConnect({ session, onSignIn, onSignOut }: WalletConnectPro
   if (session) {
     return (
       <div className="flex items-center gap-3">
-        <span className="text-sm text-[var(--color-text-secondary)] font-mono">
-          {session.address.slice(0, 6)}...{session.address.slice(-4)}
-        </span>
+        <WalletLabel address={session.address} />
         <button
           onClick={() => {
             clearStoredAuthSession();
