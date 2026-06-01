@@ -1,4 +1,6 @@
-const STORAGE_PREFIX = "x402:batch-runner:channel:";
+export const CHANNEL_STORAGE_PREFIX = "x402:batch-runner:channel:";
+
+const STORAGE_PREFIX = CHANNEL_STORAGE_PREFIX;
 
 function channelStorageKey(channelId: string): string {
   return channelId.toLowerCase();
@@ -55,4 +57,30 @@ export function availableChannelBalance(context: BatchSettlementClientContext | 
   const charged = BigInt(context.chargedCumulativeAmount ?? context.totalClaimed ?? "0");
   const balance = BigInt(context.balance);
   return balance > charged ? balance - charged : 0n;
+}
+
+export function listStoredChannelContexts(): Array<{
+  channelId: string;
+  context: BatchSettlementClientContext;
+}> {
+  if (typeof window === "undefined") return [];
+
+  const entries: Array<{ channelId: string; context: BatchSettlementClientContext }> = [];
+
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (!key?.startsWith(STORAGE_PREFIX)) continue;
+
+    const channelId = key.slice(STORAGE_PREFIX.length);
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      entries.push({ channelId, context: JSON.parse(raw) as BatchSettlementClientContext });
+    } catch {
+      // skip malformed entries
+    }
+  }
+
+  return entries;
 }

@@ -12,14 +12,18 @@ import {
   BatchSettlementEvmScheme,
   computeChannelId,
   processPaymentResponse,
-  updateChannelAfterRefund,
 } from "@x402/evm/batch-settlement/client";
 import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
 import {
+  DEFAULT_JUMPS,
   JUMP_COST_UNITS,
+  JUMP_PRESETS,
+  MAX_CUSTOM_JUMPS,
+  MAX_JUMPS_PER_RUN,
+  MIN_CUSTOM_JUMPS,
   NETWORK,
   NEXT_DEV,
-  PLAY_PRICE_UNITS,
+  RUN_PRICE_UNITS,
   roundBudgetUnits,
   RECEIVER_ADDRESS,
 } from "@/lib/x402/config";
@@ -32,6 +36,7 @@ import {
 } from "@/lib/x402/sessionKey";
 import {
   availableChannelBalance,
+  listStoredChannelContexts,
   LocalStorageChannelStorage,
   TopUpChannelStorage,
   type BatchSettlementClientContext,
@@ -57,13 +62,9 @@ const channelsAbi = [
   },
 ] as const;
 
-const JUMP_PRESETS = [10, 20, 50, 100] as const;
-const DEFAULT_JUMPS = 20;
-const MAX_CUSTOM_JUMPS = 1000;
-
 const RULE_HINTS = [
   { key: "pay-per-jump", label: "Pay per jump", icon: PayPerJumpIcon },
-  { key: "per-run", label: "Max 10 / run", icon: PerRunIcon },
+  { key: "per-run", label: `Max ${MAX_JUMPS_PER_RUN} / run`, icon: PerRunIcon },
   { key: "carryover", label: "Unused carry over", icon: CarryOverIcon },
 ] as const;
 
@@ -126,14 +127,34 @@ type ChannelSnapshot = {
   availableBalance: bigint;
 };
 
+type RefundableChannel = {
+  channelId: `0x${string}`;
+  channelConfig: ChannelConfig;
+  availableBalance: bigint;
+  isActive: boolean;
+};
+
+type ServerChannelRecord = {
+  channelId: `0x${string}`;
+  channelConfig: ChannelConfig;
+  balance?: string;
+  chargedCumulativeAmount?: string;
+  totalClaimed?: string;
+  signedMaxClaimable?: string;
+  signature?: `0x${string}`;
+};
+
 export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
   const [storedSession, setStoredSession] = useState<StoredSessionKey | null>(null);
   const [snapshot, setSnapshot] = useState<ChannelSnapshot | null>(null);
+  const [refundableChannels, setRefundableChannels] = useState<RefundableChannel[]>([]);
+  const [refundingChannelId, setRefundingChannelId] = useState<`0x${string}` | null>(null);
   const [presetJumps, setPresetJumps] = useState<number>(DEFAULT_JUMPS);
   const [customMode, setCustomMode] = useState(false);
   const [customInput, setCustomInput] = useState("");
   const [status, setStatus] = useState<"loading" | "idle" | "depositing" | "refunding">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [refundConfirmOpen, setRefundConfirmOpen] = useState(false);
 
   const storage = useMemo(() => new LocalStorageChannelStorage(), []);
@@ -157,7 +178,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
   useEffect(() => {
     if (!storedSession) return;
 
-    refreshChannel(storedSession)
+    refreshAll(storedSession)
       .catch(err => setError(err instanceof Error ? err.message : "Failed to load channel"))
       .finally(() => setStatus("idle"));
   }, [storedSession]);
@@ -175,7 +196,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
       playerAddress: authSession.address,
       channelId: snapshot?.channelId ?? null,
       channelConfig: snapshot?.channelConfig ?? null,
-      channelBalance: snapshot?.balance ?? PLAY_PRICE_UNITS,
+      channelBalance: snapshot?.balance ?? RUN_PRICE_UNITS,
       chargedCumulativeAmount: snapshot?.chargedCumulativeAmount ?? 0n,
       roundBudget: perRunBudget,
       storage,
@@ -187,10 +208,12 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
 
     setStatus("depositing");
     setError(null);
+    setSuccessMessage(null);
 
     try {
       const currentAvailable = snapshot?.availableBalance ?? 0n;
       const fundingStorage = currentAvailable > 0n ? topUpStorage : storage;
+      await syncActiveChannelStorageFromServer(fundingStorage);
       const batchedScheme = createBatchedScheme(storedSession, fundingStorage, selectedDeposit);
       const client = new x402Client();
       client.register(NETWORK, batchedScheme);
@@ -207,7 +230,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
       }
 
       await processPaymentResponse(fundingStorage, name => response.headers.get(name));
-      await refreshChannel(storedSession, readSettledChannelId(response));
+      await refreshAll(storedSession, readSettledChannelId(response));
     } catch (err) {
       console.error("[batch-runner] Deposit error:", err);
       setError(err instanceof Error ? err.message : "Failed to deposit");
@@ -216,30 +239,133 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
     }
   };
 
-  const requestRefund = async () => {
+  const requestRefund = async (target: RefundableChannel) => {
     if (!storedSession) return;
 
     setRefundConfirmOpen(false);
+    setRefundingChannelId(target.channelId);
     setStatus("refunding");
     setError(null);
+    setSuccessMessage(null);
 
     try {
-      const channelId = snapshot?.channelId;
-      if (!channelId) {
-        throw new Error("No funded channel to refund");
+      const response = await fetch(`${window.location.origin}/api/game/channels/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId: target.channelId,
+          address: authSession.address,
+        }),
+      });
+
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "Failed to request refund");
       }
 
-      const batchedScheme = createBatchedScheme(storedSession, storage, selectedDeposit);
-      const settleResponse = await batchedScheme.refund(`${window.location.origin}/api/game/start`);
-      await updateChannelAfterRefund(storage, channelId.toLowerCase(), settleResponse.extra ?? {});
-      await refreshChannel(storedSession, channelId);
+      await storage.delete(target.channelId);
+      await refreshAll(storedSession);
+      setSuccessMessage(
+        `$${formatUsdc(target.availableBalance)} refunded to your wallet.`,
+      );
     } catch (err) {
       console.error("[batch-runner] Refund error:", err);
       setError(err instanceof Error ? err.message : "Failed to request refund");
     } finally {
+      setRefundingChannelId(null);
       setStatus("idle");
     }
   };
+
+  async function refreshAll(
+    session: StoredSessionKey,
+    knownChannelId?: `0x${string}` | null,
+  ): Promise<void> {
+    await Promise.all([
+      refreshChannel(session, knownChannelId),
+      loadRefundableChannels(session),
+    ]);
+  }
+
+  async function loadRefundableChannels(session: StoredSessionKey): Promise<void> {
+    if (NEXT_DEV) {
+      setRefundableChannels([]);
+      return;
+    }
+
+    const requirements = await getGamePaymentRequirements();
+    if (!requirements) {
+      setRefundableChannels([]);
+      return;
+    }
+
+    let serverRecords: ServerChannelRecord[] = [];
+    try {
+      const response = await fetch(
+        `${window.location.origin}/api/game/channels?address=${authSession.address}`,
+      );
+      if (response.ok) {
+        const body = (await response.json()) as { channels?: ServerChannelRecord[] };
+        serverRecords = body.channels ?? [];
+      }
+    } catch {
+      // server list is best-effort; local storage still works
+    }
+
+    const contextById = new Map<string, BatchSettlementClientContext>();
+    const configById = new Map<string, ChannelConfig>();
+
+    for (const record of serverRecords) {
+      const key = record.channelId.toLowerCase();
+      configById.set(key, record.channelConfig);
+      contextById.set(key, {
+        balance: record.balance,
+        chargedCumulativeAmount: record.chargedCumulativeAmount,
+        totalClaimed: record.totalClaimed,
+      });
+    }
+
+    for (const { channelId, context } of listStoredChannelContexts()) {
+      const key = channelId.toLowerCase();
+      contextById.set(key, { ...contextById.get(key), ...context });
+    }
+
+    const activeScheme = createBatchedScheme(session, storage, selectedDeposit);
+    const activeConfig = activeScheme.buildChannelConfig(requirements);
+    const activeChannelId = computeChannelId(activeConfig, requirements.network).toLowerCase();
+    configById.set(activeChannelId, activeConfig);
+
+    const channels: RefundableChannel[] = [];
+
+    for (const [channelIdKey, context] of contextById) {
+      const channelId = channelIdKey as `0x${string}`;
+      const channelConfig = configById.get(channelIdKey);
+      if (!channelConfig) continue;
+
+      const recovered = await recoverChannelContext(channelId, context);
+      if (!recovered) continue;
+
+      const availableBalance = availableChannelBalance(recovered);
+      if (availableBalance <= 0n) continue;
+
+      const isActive =
+        channelConfig.payerAuthorizer.toLowerCase() === session.sessionAddress.toLowerCase();
+
+      channels.push({
+        channelId,
+        channelConfig,
+        availableBalance,
+        isActive,
+      });
+    }
+
+    channels.sort((a, b) => {
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+      return Number(b.availableBalance - a.availableBalance);
+    });
+
+    setRefundableChannels(channels);
+  }
 
   async function refreshChannel(
     session: StoredSessionKey,
@@ -259,8 +385,13 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
     }
 
     const derivedChannel = await getChannelInfo(session);
+    const activeChannelId = derivedChannel.channelId;
+    const useKnownChannelId =
+      knownChannelId &&
+      activeChannelId &&
+      knownChannelId.toLowerCase() === activeChannelId.toLowerCase();
     const channel = {
-      channelId: knownChannelId ?? derivedChannel.channelId,
+      channelId: useKnownChannelId ? knownChannelId : activeChannelId,
       channelConfig: derivedChannel.channelConfig,
     };
     if (!channel.channelId) {
@@ -343,10 +474,51 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
     });
   }
 
+  async function syncActiveChannelStorageFromServer(
+    channelStorage: LocalStorageChannelStorage,
+  ): Promise<void> {
+    if (!storedSession) return;
+
+    const requirements = await getGamePaymentRequirements();
+    if (!requirements) return;
+
+    const channelId = computeChannelId(
+      createBatchedScheme(storedSession, channelStorage, selectedDeposit).buildChannelConfig(
+        requirements,
+      ),
+      requirements.network,
+    );
+
+    const response = await fetch(
+      `${window.location.origin}/api/game/channels?address=${authSession.address}`,
+    );
+    if (!response.ok) return;
+
+    const body = (await response.json()) as { channels?: ServerChannelRecord[] };
+    const record = body.channels?.find(
+      channel => channel.channelId.toLowerCase() === channelId.toLowerCase(),
+    );
+
+    if (!record) {
+      await channelStorage.delete(channelId);
+      return;
+    }
+
+    await channelStorage.set(channelId.toLowerCase(), {
+      balance: record.balance,
+      chargedCumulativeAmount: record.chargedCumulativeAmount,
+      totalClaimed: record.totalClaimed,
+      signedMaxClaimable: record.signedMaxClaimable,
+      signature: record.signature,
+    });
+  }
+
   const availableBalance = snapshot?.availableBalance ?? 0n;
   const balanceJumps = jumpsFromUnits(availableBalance);
   const isBusy = status !== "idle";
-  const showRefund = availableBalance > 0n;
+  const showRefund = refundableChannels.length > 0;
+  const inactiveChannels = refundableChannels.filter(channel => !channel.isActive);
+  const hasMultipleRefundable = refundableChannels.length > 1;
   const selectedValid = selectedJumps > 0;
   const selectedPrice = formatUsdc(selectedDeposit);
 
@@ -446,14 +618,14 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
             <input
               type="number"
               inputMode="numeric"
-              min={1}
+              min={MIN_CUSTOM_JUMPS}
               max={MAX_CUSTOM_JUMPS}
               step={1}
               autoFocus
               disabled={isBusy}
               value={customInput}
               onChange={event => setCustomInput(event.target.value)}
-              placeholder={`Jumps (1–${MAX_CUSTOM_JUMPS})`}
+              placeholder={`Jumps (${MIN_CUSTOM_JUMPS}–${MAX_CUSTOM_JUMPS})`}
               aria-label="Custom jump count"
               className="deposit-custom"
             />
@@ -483,6 +655,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
             </button>
           </div>
 
+          {successMessage && <p className="deposit-success">{successMessage}</p>}
           {error && <p className="deposit-error">{error}</p>}
         </div>
       </div>
@@ -494,7 +667,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
           onClick={() => !isBusy && setRefundConfirmOpen(false)}
         >
           <div
-            className="deposit-confirm"
+            className="deposit-confirm deposit-confirm-refund"
             role="alertdialog"
             aria-labelledby="deposit-refund-title"
             aria-describedby="deposit-refund-desc"
@@ -504,9 +677,52 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
               Refund jumps?
             </h2>
             <p id="deposit-refund-desc" className="deposit-confirm-body">
-              {balanceJumps} unused {balanceJumps === 1 ? "jump" : "jumps"} (${formatUsdc(availableBalance)})
-              will be returned to your wallet.
+              {hasMultipleRefundable || inactiveChannels.length > 0
+                ? "Select a channel to refund unused jumps back to your wallet."
+                : `${balanceJumps} unused ${balanceJumps === 1 ? "jump" : "jumps"} ($${formatUsdc(refundableChannels[0]?.availableBalance ?? availableBalance)}) will be returned to your wallet.`}
             </p>
+
+            <ul className="deposit-refund-list" aria-label="Refundable channels">
+              {refundableChannels.map(channel => {
+                const jumps = jumpsFromUnits(channel.availableBalance);
+                const isRefunding = refundingChannelId === channel.channelId;
+
+                return (
+                  <li
+                    key={channel.channelId}
+                    className={`deposit-refund-item ${channel.isActive ? "deposit-refund-item-active" : "deposit-refund-item-inactive"}`}
+                  >
+                    <div className="deposit-refund-item-info">
+                      <p className="deposit-refund-item-amount">
+                        <span className="deposit-refund-item-balance tabular-nums">
+                          {jumps} {jumps === 1 ? "jump" : "jumps"}
+                        </span>
+                        <span className="deposit-refund-item-sep" aria-hidden>
+                          ·
+                        </span>
+                        <span className="deposit-refund-item-price tabular-nums">
+                          ${formatUsdc(channel.availableBalance)}
+                        </span>
+                      </p>
+                      {!channel.isActive && (
+                        <p className="deposit-refund-item-status">
+                          Inactive · session key not found
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="deposit-btn deposit-btn-primary deposit-refund-item-btn"
+                      disabled={isBusy}
+                      onClick={() => requestRefund(channel)}
+                    >
+                      {isRefunding ? "Refunding…" : "Refund"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
             <div className="deposit-confirm-actions">
               <button
                 type="button"
@@ -515,14 +731,6 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
                 onClick={() => setRefundConfirmOpen(false)}
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                className="deposit-btn deposit-btn-primary"
-                disabled={isBusy}
-                onClick={requestRefund}
-              >
-                {status === "refunding" ? "Refunding…" : "Confirm refund"}
               </button>
             </div>
           </div>
@@ -576,7 +784,7 @@ function minBigInt(a: bigint, b: bigint): bigint {
 
 function parseCustomJumps(value: string): number {
   const parsed = Math.floor(Number(value));
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  if (!Number.isFinite(parsed) || parsed < MIN_CUSTOM_JUMPS) return 0;
   return Math.min(parsed, MAX_CUSTOM_JUMPS);
 }
 

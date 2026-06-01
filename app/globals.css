@@ -623,6 +623,84 @@ body {
   flex: 1;
 }
 
+.deposit-confirm-refund {
+  width: min(100%, 24rem);
+}
+
+.deposit-refund-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.deposit-refund-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(69, 126, 255, 0.2);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.deposit-refund-item-active {
+  border-color: rgba(69, 126, 255, 0.35);
+}
+
+.deposit-refund-item-inactive {
+  border-color: rgba(255, 140, 160, 0.25);
+  background: rgba(40, 10, 20, 0.25);
+}
+
+.deposit-refund-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.deposit-refund-item-amount {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.deposit-refund-item-balance {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #eef4ff;
+}
+
+.deposit-refund-item-sep {
+  font-size: 0.75rem;
+  color: rgba(180, 195, 240, 0.45);
+}
+
+.deposit-refund-item-price {
+  font-size: 0.75rem;
+  color: rgba(180, 195, 240, 0.85);
+}
+
+.deposit-refund-item-status {
+  margin: 0;
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: rgba(255, 140, 160, 0.85);
+}
+
+.deposit-refund-item-btn {
+  flex: 0 0 auto;
+  min-width: 4.75rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.7rem;
+}
+
 .deposit-picker {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -811,6 +889,13 @@ body {
   font-size: 0.7rem;
   text-align: center;
   color: rgba(255, 71, 87, 0.95);
+}
+
+.deposit-success {
+  margin: 0;
+  font-size: 0.7rem;
+  text-align: center;
+  color: rgba(46, 213, 115, 0.95);
 }
 
 @media (max-width: 380px) {

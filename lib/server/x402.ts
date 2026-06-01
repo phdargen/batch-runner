@@ -1,5 +1,6 @@
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { BatchSettlementEvmScheme } from "@x402/evm/batch-settlement/server";
+import { getAddress } from "viem";
 import { FileChannelStorage } from "@x402/evm/batch-settlement/server/file-storage";
 import {
   FACILITATOR_URL,
@@ -9,6 +10,7 @@ import {
   USDC_ADDRESS,
   WITHDRAW_DELAY,
 } from "../x402/config";
+import { activatePlayerChannel } from "./channels";
 
 if (!FACILITATOR_URL) {
   console.warn("[batch-runner] FACILITATOR_URL not set — deposit route will fail at runtime");
@@ -25,6 +27,32 @@ const batchedScheme = new BatchSettlementEvmScheme(RECEIVER_ADDRESS, {
   withdrawDelay: WITHDRAW_DELAY,
   storage: channelStorage,
 });
+
+const defaultEnrichSettlementResponse = batchedScheme.enrichSettlementResponse.bind(batchedScheme);
+batchedScheme.enrichSettlementResponse = async ctx => {
+  const extra = await defaultEnrichSettlementResponse(ctx);
+  if (!extra?.channelState) return extra;
+
+  const channel = batchedScheme.takeChannelSnapshot(ctx.paymentPayload);
+  if (!channel) return extra;
+
+  await activatePlayerChannel(
+    getAddress(channel.channelConfig.payer) as `0x${string}`,
+    channel.channelId as `0x${string}`,
+  );
+
+  return {
+    ...extra,
+    channelState: {
+      ...extra.channelState,
+      channelId: channel.channelId,
+      balance: channel.balance,
+      totalClaimed: channel.totalClaimed,
+      withdrawRequestedAt: channel.withdrawRequestedAt,
+      refundNonce: String(channel.refundNonce),
+    },
+  };
+};
 
 export const server = new x402ResourceServer(facilitatorClient).register(NETWORK, batchedScheme);
 export const channelManager = batchedScheme.createChannelManager(facilitatorClient, NETWORK);
