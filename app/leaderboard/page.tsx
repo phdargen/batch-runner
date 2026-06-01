@@ -13,9 +13,11 @@ export default function LeaderboardPage() {
       />
       <div className="leaderboard-page-overlay" aria-hidden />
 
-      <Link href="/" className="deposit-btn deposit-play-btn deposit-leaderboard-btn">
-        Back
-      </Link>
+      <div className="deposit-page-actions">
+        <Link href="/" className="deposit-btn deposit-play-btn deposit-leaderboard-btn">
+          Back
+        </Link>
+      </div>
 
       <div className="leaderboard-page-content animate-slide-up">
         <div className="leaderboard-page-header">
