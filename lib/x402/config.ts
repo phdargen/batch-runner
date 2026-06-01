@@ -76,13 +76,11 @@ export function roundBudgetUnits(): bigint {
   return NEXT_DEV ? DEV_ROUND_BUDGET_UNITS : RUN_PRICE_UNITS;
 }
 
-export const WITHDRAW_DELAY = 900; // 15 minutes (minimum)
+export const WITHDRAW_DELAY = 3 * 24 * 60 * 60; // 3 days
 export const STORAGE_DIR = process.env.STORAGE_DIR || "/tmp/x402-batch-runner-channels";
 
 export const FACILITATOR_URL =
-  process.env.FACILITATOR_URL ||
-  process.env.NEXT_PUBLIC_FACILITATOR_URL ||
-  "https://x402.org/facilitator";
+  process.env.FACILITATOR_URL || process.env.NEXT_PUBLIC_FACILITATOR_URL || "";
 
 export const RECEIVER_ADDRESS = (process.env.EVM_ADDRESS ||
   process.env.NEXT_PUBLIC_RECEIVER_ADDRESS ||

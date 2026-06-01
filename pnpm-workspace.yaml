@@ -1,4 +1,5 @@
 allowBuilds:
+  '@coinbase/x402': true
   esbuild: true
   sharp: true
   unrs-resolver: true

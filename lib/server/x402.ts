@@ -1,6 +1,8 @@
+import { facilitator } from "@coinbase/x402";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { bazaarResourceServerExtension } from "@x402/extensions/bazaar";
 import { BatchSettlementEvmScheme } from "@x402/evm/batch-settlement/server";
+import { privateKeyToAccount } from "viem/accounts";
 import {
   FACILITATOR_URL,
   NETWORK,
@@ -10,17 +12,23 @@ import {
 } from "../x402/config";
 import { channelStorage } from "./storage";
 
-if (!FACILITATOR_URL) {
-  console.warn("[batch-runner] FACILITATOR_URL not set — deposit route will fail at runtime");
-}
-
 if (!RECEIVER_ADDRESS || !/^0x[0-9a-fA-F]{40}$/.test(RECEIVER_ADDRESS)) {
   console.warn("[batch-runner] EVM_ADDRESS / NEXT_PUBLIC_RECEIVER_ADDRESS not set or invalid");
 }
 
-const facilitatorClient = new HTTPFacilitatorClient({ url: FACILITATOR_URL });
+const receiverAuthorizerPrivateKey = process.env.EVM_RECEIVER_AUTHORIZER_PRIVATE_KEY as
+  | `0x${string}`
+  | undefined;
+const receiverAuthorizerSigner = receiverAuthorizerPrivateKey
+  ? privateKeyToAccount(receiverAuthorizerPrivateKey)
+  : undefined;
+
+const facilitatorClient = FACILITATOR_URL
+  ? new HTTPFacilitatorClient({ url: FACILITATOR_URL })
+  : new HTTPFacilitatorClient(facilitator);
 
 const batchedScheme = new BatchSettlementEvmScheme(RECEIVER_ADDRESS, {
+  ...(receiverAuthorizerSigner ? { receiverAuthorizerSigner } : {}),
   withdrawDelay: WITHDRAW_DELAY,
   storage: channelStorage,
 });
