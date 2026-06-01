@@ -1,57 +1,27 @@
 import { NextResponse } from "next/server";
-import { verifyTypedData, getAddress } from "viem";
-import {
-  BATCH_SETTLEMENT_DOMAIN,
-  BATCH_SETTLEMENT_ADDRESS,
-  voucherTypes,
-} from "@x402/evm";
+import { verifyTypedData, getAddress, type Address } from "viem";
+import { BATCH_SETTLEMENT_DOMAIN, BATCH_SETTLEMENT_ADDRESS, voucherTypes } from "@x402/evm";
+import { resolveBasename } from "@/lib/server/basename";
+import { leaderboardStorage, type LeaderboardEntry } from "@/lib/server/storage";
 
-type LeaderboardEntry = {
-  address: string;
-  distance: number;
-  voucherCount: number;
-};
+const MAX_ENTRIES = 100;
 
-// In-memory leaderboard fallback when no Redis is configured
-const inMemoryLeaderboard: LeaderboardEntry[] = [];
+export const runtime = "nodejs";
 
-function getRedis() {
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null;
+export async function GET(req: Request) {
+  const limitParam = new URL(req.url).searchParams.get("limit");
+  const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : MAX_ENTRIES;
+  const limit = Number.isFinite(parsedLimit)
+    ? Math.min(Math.max(parsedLimit, 1), MAX_ENTRIES)
+    : MAX_ENTRIES;
 
-  // Lazy import to avoid errors when @upstash/redis isn't available
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Redis } = require("@upstash/redis");
-    return new Redis({ url, token });
-  } catch {
-    return null;
+    const leaderboard = await leaderboardStorage.get(limit);
+    return NextResponse.json({ leaderboard });
+  } catch (error) {
+    console.error("[batch-runner] Failed to read leaderboard:", error);
+    return NextResponse.json({ error: "Failed to read leaderboard" }, { status: 500 });
   }
-}
-
-const LEADERBOARD_KEY = "batch-runner:leaderboard";
-const MAX_ENTRIES = 50;
-
-export async function GET() {
-  const redis = getRedis();
-
-  if (redis) {
-    try {
-      const raw = await redis.zrange(LEADERBOARD_KEY, 0, MAX_ENTRIES - 1, { rev: true, withScores: true });
-      const entries: LeaderboardEntry[] = [];
-      for (let i = 0; i < raw.length; i += 2) {
-        const parsed = typeof raw[i] === "string" ? JSON.parse(raw[i] as string) : raw[i];
-        entries.push(parsed as LeaderboardEntry);
-      }
-      return NextResponse.json({ entries });
-    } catch {
-      // Fall through to in-memory
-    }
-  }
-
-  const sorted = [...inMemoryLeaderboard].sort((a, b) => b.distance - a.distance).slice(0, MAX_ENTRIES);
-  return NextResponse.json({ entries: sorted });
 }
 
 export async function POST(req: Request) {
@@ -89,32 +59,21 @@ export async function POST(req: Request) {
     }
   }
 
+  const normalizedAddress = getAddress(address);
+  const basename = await resolveBasename(normalizedAddress as Address);
+
   const entry: LeaderboardEntry = {
-    address: getAddress(address),
+    address: normalizedAddress,
+    ...(basename ? { basename } : {}),
     distance,
     voucherCount,
   };
 
-  const redis = getRedis();
-  let rank: number | null = null;
-
-  if (redis) {
-    try {
-      await redis.zadd(LEADERBOARD_KEY, { score: distance, member: JSON.stringify(entry) });
-      rank = await redis.zrevrank(LEADERBOARD_KEY, JSON.stringify(entry));
-      if (rank !== null) rank += 1;
-    } catch {
-      // Fall through
-    }
+  try {
+    const result = await leaderboardStorage.record(entry, MAX_ENTRIES);
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("[batch-runner] Failed to record leaderboard entry:", error);
+    return NextResponse.json({ error: "Failed to record leaderboard entry" }, { status: 500 });
   }
-
-  if (rank === null) {
-    inMemoryLeaderboard.push(entry);
-    inMemoryLeaderboard.sort((a, b) => b.distance - a.distance);
-    rank = inMemoryLeaderboard.findIndex(
-      (e) => e.address === entry.address && e.distance === entry.distance,
-    ) + 1;
-  }
-
-  return NextResponse.json({ rank });
 }

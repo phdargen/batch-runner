@@ -18,6 +18,7 @@ import { signGameVoucher, verifyGameVoucher } from "@/lib/x402/channel";
 import type { SessionInfo } from "./DepositFlow";
 import { GameHUD } from "./GameHUD";
 import { GameOver } from "./GameOver";
+import type { HighlightRun } from "./Leaderboard";
 
 function jumpsFromBalance(balance: bigint): number {
   return Math.floor(Number(balance) / Number(JUMP_COST_UNITS));
@@ -26,10 +27,11 @@ function jumpsFromBalance(balance: bigint): number {
 type GameProps = {
   session: SessionInfo;
   onPlayAgain: () => void;
+  onBackToDeposit: () => void;
   autoStart?: boolean;
 };
 
-export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
+export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false }: GameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -64,6 +66,8 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
   });
   const [gameOver, setGameOver] = useState(false);
   const [rank, setRank] = useState<number | null>(null);
+  const [highlightRun, setHighlightRun] = useState<HighlightRun | null>(null);
+  const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0);
   const [started, setStarted] = useState(false);
   const [viewportLayout, setViewportLayout] = useState<ViewportLayout>({
     displayWidth: GAME_VIEWPORT_WIDTH,
@@ -177,6 +181,8 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
   const endGame = useCallback(() => {
     stateRef.current.phase = "game-over";
     gameAudio.playGameOver();
+    setRank(null);
+    setHighlightRun(null);
     setGameOver(true);
     setHudState(prev => ({
       ...prev,
@@ -433,6 +439,12 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
     if (res.ok) {
       const data = await res.json();
       setRank(data.rank ?? null);
+      setHighlightRun({
+        address: session.playerAddress,
+        distance: Math.floor(state.distance),
+        voucherCount: jumpCountRef.current,
+      });
+      setLeaderboardRefreshKey(key => key + 1);
     }
   }, [flushVoucherCheckpoint, session.playerAddress, session.sessionAddress]);
 
@@ -490,7 +502,10 @@ export function Game({ session, onPlayAgain, autoStart = false }: GameProps) {
             distance={stateRef.current.distance}
             voucherCount={jumpCountRef.current}
             rank={rank}
+            highlightRun={highlightRun}
+            leaderboardRefreshKey={leaderboardRefreshKey}
             onPlayAgain={onPlayAgain}
+            onBackToDeposit={onBackToDeposit}
           />
         )}
       </div>

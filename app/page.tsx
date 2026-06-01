@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { WalletConnect, type BaseAuthSession } from "@/components/WalletConnect";
 import { DepositFlow, type SessionInfo } from "@/components/DepositFlow";
@@ -28,6 +29,12 @@ export default function Home() {
 
     setSession(createDevSession());
   }, []);
+
+  const handleBackToDeposit = () => {
+    setAutoStart(false);
+    setSession(null);
+    setGameKey(k => k + 1);
+  };
 
   const handlePlayAgain = async () => {
     if (!session) return;
@@ -68,21 +75,27 @@ export default function Home() {
             </span>
           </div>
         )}
-        <Game key={gameKey} session={session} onPlayAgain={handlePlayAgain} autoStart={autoStart} />
+        <Game
+          key={gameKey}
+          session={session}
+          onPlayAgain={handlePlayAgain}
+          onBackToDeposit={handleBackToDeposit}
+          autoStart={autoStart}
+        />
       </main>
     );
   }
 
-  const isLoginPage = !NEXT_DEV && !authSession;
   const isDepositPage = !NEXT_DEV && !!authSession;
+  const hasCityBackground = !NEXT_DEV;
 
   return (
     <main
       className={`min-h-dvh flex flex-col items-center px-4 ${
-        isDepositPage ? "relative overflow-hidden" : "justify-center py-8"
-      } ${isLoginPage ? "bg-black" : ""}`}
+        hasCityBackground ? "relative overflow-hidden" : "justify-center py-8"
+      }`}
     >
-      {isDepositPage && (
+      {hasCityBackground && (
         <>
           <div
             className="absolute inset-0 bg-[var(--color-base-blue-dark)] bg-cover bg-center bg-no-repeat"
@@ -90,13 +103,23 @@ export default function Home() {
             aria-hidden
           />
           <div className="absolute inset-0 bg-[var(--color-base-blue-dark)]/60" aria-hidden />
+        </>
+      )}
+      {isDepositPage && (
+        <>
+          <Link
+            href="/leaderboard"
+            className="deposit-btn deposit-play-btn deposit-leaderboard-btn"
+          >
+            Leaderboard
+          </Link>
           <div className="absolute top-3 right-3 z-20">
             <WalletConnect session={authSession} onSignIn={setAuthSession} onSignOut={handleSignOut} />
           </div>
         </>
       )}
       <div
-        className={`w-full ${isDepositPage ? "max-w-4xl relative z-10 min-h-dvh" : isLoginPage ? "max-w-4xl" : "max-w-2xl"}`}
+        className={`w-full ${hasCityBackground ? "max-w-4xl relative z-10 min-h-dvh" : "max-w-2xl"}`}
       >
         {NEXT_DEV ? (
           <DevLoading />

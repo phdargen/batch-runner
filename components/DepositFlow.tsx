@@ -644,20 +644,22 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
                   ? `Add ${selectedJumps} · $${selectedPrice}`
                   : "Add jumps"}
             </button>
-
-            <button
-              type="button"
-              onClick={startSession}
-              disabled={!canStart || isBusy}
-              className="deposit-btn deposit-btn-primary"
-            >
-              Play
-            </button>
           </div>
 
           {successMessage && <p className="deposit-success">{successMessage}</p>}
           {error && <p className="deposit-error">{error}</p>}
         </div>
+      </div>
+
+      <div className="deposit-play-wrap">
+        <button
+          type="button"
+          onClick={startSession}
+          disabled={!canStart || isBusy}
+          className="deposit-btn deposit-play-btn"
+        >
+          Play
+        </button>
       </div>
 
       {refundConfirmOpen && (

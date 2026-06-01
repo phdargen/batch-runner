@@ -68,9 +68,9 @@ if (RUN_PRICE_UNITS % BigInt(MAX_JUMPS_PER_RUN) !== 0n) {
 
 export const JUMP_PRICE = formatUsdPrice(JUMP_COST_UNITS);
 
-export const DEV_ROUND_BUDGET_MULTIPLIER = 10;
+export const DEV_ROUND_BUDGET_MULTIPLIER = 1;
 export const DEV_ROUND_BUDGET_UNITS = RUN_PRICE_UNITS * BigInt(DEV_ROUND_BUDGET_MULTIPLIER);
-export const VOUCHER_CHECKPOINT_JUMPS = 5;
+export const VOUCHER_CHECKPOINT_JUMPS = 25;
 
 export function roundBudgetUnits(): bigint {
   return NEXT_DEV ? DEV_ROUND_BUDGET_UNITS : RUN_PRICE_UNITS;

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getAddress } from "viem";
-import { deactivatePlayerChannel } from "@/lib/server/channels";
 import { channelManager, storage } from "@/lib/server/x402";
 
 export const runtime = "nodejs";
@@ -43,8 +42,6 @@ export async function POST(req: Request) {
     if (results.length === 0) {
       return NextResponse.json({ error: "Refund failed" }, { status: 502 });
     }
-
-    await deactivatePlayerChannel(channelId as `0x${string}`);
 
     return NextResponse.json({
       ok: true,

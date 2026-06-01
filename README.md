@@ -18,7 +18,7 @@ A Chrome-dino-style browser game showcasing x402 batch-settlement. Players depos
 ## Prerequisites
 
 - Node.js 20+, pnpm 10
-- (Optional) Upstash Redis for persistent leaderboard
+- (Optional) Redis/Valkey for persistent backend storage
 
 ## Setup
 
@@ -31,12 +31,12 @@ cd fullstack/batch-runner
 
 Copy `.env.example` to `.env` and optionally set:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `KV_REST_API_URL` | no | Upstash Redis URL for persistent leaderboard |
-| `KV_REST_API_TOKEN` | no | Upstash Redis token |
+| Variable      | Required | Description                                               |
+| ------------- | -------- | --------------------------------------------------------- |
+| `REDIS_URL`   | no       | Redis/Valkey URL for x402 channel and leaderboard storage |
+| `STORAGE_DIR` | no       | File storage directory used when `REDIS_URL` is unset     |
 
-Without Redis, the leaderboard uses in-memory storage (resets on restart).
+Without `REDIS_URL`, x402 channels and leaderboard entries use local file storage under `STORAGE_DIR`.
 
 Set `NEXT_DEV=true` to skip login and deposits entirely and jump straight into a local gameplay session.
 
@@ -60,7 +60,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - **Game**: HTML5 Canvas + `requestAnimationFrame`
 - **Wallet**: wagmi v3 + viem (Base Account only; see `lib/wagmi.ts`)
 - **x402**: `@x402/evm` (`signVoucher`, `computeChannelId`, EIP-712 verification)
-- **Leaderboard**: Upstash Redis (optional, falls back to in-memory)
+- **Leaderboard**: Redis/Valkey via `REDIS_URL`, or local file storage via `STORAGE_DIR`
 - **Network**: Base Sepolia (testnet)
 
 ## Files
