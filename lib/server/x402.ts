@@ -36,20 +36,37 @@ const batchedScheme = new BatchSettlementEvmScheme(RECEIVER_ADDRESS, {
 const defaultEnrichSettlementResponse = batchedScheme.enrichSettlementResponse.bind(batchedScheme);
 batchedScheme.enrichSettlementResponse = async ctx => {
   const extra = await defaultEnrichSettlementResponse(ctx);
-  if (!extra?.channelState) return extra;
+  const settleExtra = ctx.result?.extra;
+  const settledState =
+    settleExtra &&
+    typeof settleExtra === "object" &&
+    settleExtra.channelState &&
+    typeof settleExtra.channelState === "object"
+      ? (settleExtra.channelState as Record<string, unknown>)
+      : undefined;
 
-  const channel = batchedScheme.takeChannelSnapshot(ctx.paymentPayload);
-  if (!channel) return extra;
+  if (!extra?.channelState && !settledState) return extra;
 
   return {
     ...extra,
     channelState: {
-      ...extra.channelState,
-      channelId: channel.channelId,
-      balance: channel.balance,
-      totalClaimed: channel.totalClaimed,
-      withdrawRequestedAt: channel.withdrawRequestedAt,
-      refundNonce: String(channel.refundNonce),
+      ...extra?.channelState,
+      ...(settledState?.channelId !== undefined
+        ? { channelId: String(settledState.channelId) }
+        : {}),
+      ...(settledState?.balance !== undefined ? { balance: String(settledState.balance) } : {}),
+      ...(settledState?.totalClaimed !== undefined
+        ? { totalClaimed: String(settledState.totalClaimed) }
+        : {}),
+      ...(settledState?.withdrawRequestedAt !== undefined
+        ? { withdrawRequestedAt: Number(settledState.withdrawRequestedAt) }
+        : {}),
+      ...(settledState?.refundNonce !== undefined
+        ? { refundNonce: String(settledState.refundNonce) }
+        : {}),
+      ...(settledState?.chargedCumulativeAmount !== undefined
+        ? { chargedCumulativeAmount: String(settledState.chargedCumulativeAmount) }
+        : {}),
     },
   };
 };

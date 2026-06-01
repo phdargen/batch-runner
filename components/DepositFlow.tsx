@@ -38,7 +38,6 @@ import {
   availableChannelBalance,
   listStoredChannelContexts,
   LocalStorageChannelStorage,
-  TopUpChannelStorage,
   type BatchSettlementClientContext,
 } from "@/lib/x402/browserStorage";
 import type { ClientEvmSigner } from "@x402/evm";
@@ -159,7 +158,6 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
   const [refundConfirmOpen, setRefundConfirmOpen] = useState(false);
 
   const storage = useMemo(() => new LocalStorageChannelStorage(), []);
-  const topUpStorage = useMemo(() => new TopUpChannelStorage(), []);
 
   const customJumps = parseCustomJumps(customInput);
   const selectedJumps = customMode ? customJumps : presetJumps;
@@ -212,10 +210,18 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
     setSuccessMessage(null);
 
     try {
-      const currentAvailable = snapshot?.availableBalance ?? 0n;
-      const fundingStorage = currentAvailable > 0n ? topUpStorage : storage;
-      await syncActiveChannelStorageFromServer(fundingStorage);
-      const batchedScheme = createBatchedScheme(storedSession, fundingStorage, selectedDeposit);
+      await syncActiveChannelStorageFromServer(storage);
+      const batchedScheme = createBatchedScheme(storedSession, storage, selectedDeposit);
+      const requirements = await getGamePaymentRequirements();
+      if (!requirements) {
+        throw new Error("Could not load payment requirements");
+      }
+      const channelId = computeChannelId(
+        batchedScheme.buildChannelConfig(requirements),
+        requirements.network,
+      );
+      await recoverChannelContext(channelId, await storage.get(channelId));
+
       const client = new x402Client();
       client.register(NETWORK, batchedScheme);
 
@@ -230,7 +236,7 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
         throw new Error(`Deposit failed (${response.status}): ${text}`);
       }
 
-      await processPaymentResponse(fundingStorage, name => response.headers.get(name));
+      await processPaymentResponse(storage, name => response.headers.get(name));
       await refreshAll(storedSession, readSettledChannelId(response));
     } catch (err) {
       console.error("[batch-runner] Deposit error:", err);

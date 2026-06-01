@@ -41,16 +41,6 @@ export class LocalStorageChannelStorage {
   }
 }
 
-export class TopUpChannelStorage extends LocalStorageChannelStorage {
-  async get(key: string): Promise<BatchSettlementClientContext | undefined> {
-    const context = await super.get(key);
-    if (!context) return context;
-
-    const charged = context.chargedCumulativeAmount ?? context.totalClaimed ?? "0";
-    return { ...context, balance: charged };
-  }
-}
-
 export function availableChannelBalance(context: BatchSettlementClientContext | undefined): bigint {
   if (!context?.balance) return 0n;
 

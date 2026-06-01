@@ -25,11 +25,11 @@ export const GET = withX402Route(
         payTo: receiverAddress,
       },
     ],
-    description:
-      "Batch Runner: fund a batch-settlement channel with USDC on Base Sepolia. Each jump costs a micro-payment via locally signed vouchers — how far can you get Rex402 with 100 jumps?",
+    description:"Batch Runner: Batch jumps to run through Base City. How far can you get Rex402 with 100 jumps? Make them count.",
     mimeType: "application/json",
     serviceName: "Batch Runner",
-    tags: ["game", "batch-settlement", "x402"],
+    iconUrl: "https://batch-runner.vercel.app/logo.png",
+    tags: ["game"],
     extensions: {
       ...declareDiscoveryExtension({
         output: {

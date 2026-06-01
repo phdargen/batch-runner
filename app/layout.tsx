@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: "Batch Runner | $0.01 plays. Zero gas.",
   description:
     "Chrome-dino-style browser game showcasing x402 batch-settlement. Deposit $0.01 per play, each jump costs $0.001 via a signed voucher.",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
