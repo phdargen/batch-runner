@@ -12,86 +12,119 @@ const VOLUME = {
   loop: 0.35,
 } as const;
 
-function createClip(src: string, volume: number, loop = false): HTMLAudioElement | null {
-  if (typeof window === "undefined") return null;
-  const audio = new Audio(src);
-  audio.preload = "auto";
-  audio.volume = volume;
-  audio.loop = loop;
-  return audio;
-}
+type ClipName = keyof typeof SOUND_PATHS;
 
+/**
+ * Web Audio playback. Clips are fetched and decoded once into AudioBuffers, then
+ * played via short-lived buffer source nodes. This avoids the main-thread hitches
+ * that HTMLAudioElement.play()/currentTime cause on mobile browsers (notably on
+ * landing/jump), which showed up as frame stutter during gameplay.
+ */
 class GameAudio {
-  private jump: HTMLAudioElement | null = null;
-  private landing: HTMLAudioElement | null = null;
-  private gameOver: HTMLAudioElement | null = null;
-  private loop: HTMLAudioElement | null = null;
+  private ctx: AudioContext | null = null;
+  private buffers: Partial<Record<ClipName, AudioBuffer>> = {};
+  private loopSource: AudioBufferSourceNode | null = null;
   private unlocked = false;
   private loopPlaying = false;
-
-  private ensureLoaded() {
-    if (this.jump) return;
-    this.jump = createClip(SOUND_PATHS.jump, VOLUME.jump);
-    this.landing = createClip(SOUND_PATHS.landing, VOLUME.landing);
-    this.gameOver = createClip(SOUND_PATHS.gameOver, VOLUME.gameOver);
-    this.loop = createClip(SOUND_PATHS.loop, VOLUME.loop, true);
-  }
+  private loading = false;
 
   unlock() {
     if (this.unlocked) return;
+    if (typeof window === "undefined") return;
+
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+
+    this.ctx = new Ctor();
     this.unlocked = true;
-    this.ensureLoaded();
+    void this.ctx.resume();
+    void this.loadAll();
   }
 
-  private playClip(audio: HTMLAudioElement | null) {
-    if (!this.unlocked || !audio) return;
-    audio.currentTime = 0;
-    void audio.play().catch(() => {});
+  private async loadAll() {
+    if (this.loading || !this.ctx) return;
+    this.loading = true;
+
+    await Promise.all(
+      (Object.keys(SOUND_PATHS) as ClipName[]).map(async name => {
+        try {
+          const response = await fetch(SOUND_PATHS[name]);
+          const data = await response.arrayBuffer();
+          this.buffers[name] = await this.ctx!.decodeAudioData(data);
+        } catch {
+          // A missing clip simply stays silent rather than breaking gameplay.
+        }
+      }),
+    );
+  }
+
+  private playClip(name: ClipName, volume: number) {
+    const ctx = this.ctx;
+    const buffer = this.buffers[name];
+    if (!this.unlocked || !ctx || !buffer) return;
+
+    if (ctx.state === "suspended") void ctx.resume();
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.value = volume;
+    source.connect(gain).connect(ctx.destination);
+    source.start();
   }
 
   playJump() {
-    this.ensureLoaded();
-    this.playClip(this.jump);
+    this.playClip("jump", VOLUME.jump);
   }
 
   playLanding() {
-    this.ensureLoaded();
-    this.playClip(this.landing);
+    this.playClip("landing", VOLUME.landing);
   }
 
   playGameOver() {
     this.stopLoop();
-    this.ensureLoaded();
-    this.playClip(this.gameOver);
+    this.playClip("gameOver", VOLUME.gameOver);
   }
 
   startLoop() {
-    if (!this.unlocked || !this.loop || this.loopPlaying) return;
+    const ctx = this.ctx;
+    const buffer = this.buffers.loop;
+    if (!this.unlocked || !ctx || !buffer || this.loopPlaying) return;
+
+    if (ctx.state === "suspended") void ctx.resume();
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    const gain = ctx.createGain();
+    gain.gain.value = VOLUME.loop;
+    source.connect(gain).connect(ctx.destination);
+    source.start();
+
+    this.loopSource = source;
     this.loopPlaying = true;
-    void this.loop.play().catch(() => {
-      this.loopPlaying = false;
-    });
   }
 
   stopLoop() {
-    if (!this.loop) return;
-    this.loop.pause();
-    this.loop.currentTime = 0;
+    if (this.loopSource) {
+      try {
+        this.loopSource.stop();
+      } catch {
+        // Already stopped.
+      }
+      this.loopSource.disconnect();
+      this.loopSource = null;
+    }
     this.loopPlaying = false;
   }
 
   dispose() {
     this.stopLoop();
-    for (const clip of [this.jump, this.landing, this.gameOver, this.loop]) {
-      if (!clip) continue;
-      clip.pause();
-      clip.src = "";
-    }
-    this.jump = null;
-    this.landing = null;
-    this.gameOver = null;
-    this.loop = null;
+    void this.ctx?.close();
+    this.ctx = null;
+    this.buffers = {};
     this.unlocked = false;
+    this.loading = false;
   }
 }
 
