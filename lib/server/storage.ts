@@ -19,6 +19,7 @@ import {
   sortLeaderboard,
   type LeaderboardEntry as SharedLeaderboardEntry,
 } from "../leaderboard";
+import { createSettlementStatsStorage, type SettlementStatsStorage } from "./settlementStats";
 
 const LEADERBOARD_KEY = "batch-runner:leaderboard";
 const LEADERBOARD_STATS_KEY = "batch-runner:leaderboard:stats";
@@ -65,7 +66,10 @@ type LazyRedisStorageClient = RedisChannelStorageClient & {
   zRevRangeWithScores(key: string, start: number, stop: number): Promise<string[]>;
 };
 
-function createLazyRedisStorageClient(url: string): LazyRedisStorageClient {
+function createLazyRedisStorageClient(url: string): {
+  client: LazyRedisStorageClient;
+  disconnect: () => Promise<void>;
+} {
   const connect = async () => {
     const client = createClient({ url });
     client.on("error", err => {
@@ -81,6 +85,13 @@ function createLazyRedisStorageClient(url: string): LazyRedisStorageClient {
     return connecting;
   };
 
+  const disconnect = async () => {
+    const client = await connecting;
+    if (client?.isOpen) {
+      await client.quit();
+    }
+  };
+
   const normalizeRedisString = (value: string | Buffer | null): string | null => {
     if (value == null) return null;
     return typeof value === "string" ? value : value.toString("utf8");
@@ -90,64 +101,67 @@ function createLazyRedisStorageClient(url: string): LazyRedisStorageClient {
     typeof key === "string" ? key : key.toString("utf8");
 
   return {
-    get: key =>
-      ensureClient()
-        .then(client => client.get(key))
-        .then(normalizeRedisString),
-    set: (key, value, opts?: RedisSetOptions) =>
-      ensureClient()
-        .then(client => {
-          if (opts?.NX) {
-            return client.set(key, value, {
-              NX: true,
-              ...(opts.PX !== undefined ? { PX: opts.PX } : {}),
-            });
-          }
-
-          if (opts?.PX !== undefined) {
-            return client.set(key, value, { PX: opts.PX });
-          }
-
-          return client.set(key, value);
-        })
-        .then(normalizeRedisString),
-    del: key =>
-      ensureClient()
-        .then(client => client.del(key))
-        .then(count => Number(count)),
-    eval: (script, options: RedisEvalOptions) =>
-      ensureClient().then(client => client.eval(script, options)),
-    scanIterator(options: RedisScanOptions): AsyncIterable<string | string[]> {
-      return {
-        async *[Symbol.asyncIterator]() {
-          const client = await ensureClient();
-          for await (const chunk of client.scanIterator(options)) {
-            if (Array.isArray(chunk)) {
-              yield chunk.map(normalizeScanKey);
-              continue;
+    client: {
+      get: key =>
+        ensureClient()
+          .then(client => client.get(key))
+          .then(normalizeRedisString),
+      set: (key, value, opts?: RedisSetOptions) =>
+        ensureClient()
+          .then(client => {
+            if (opts?.NX) {
+              return client.set(key, value, {
+                NX: true,
+                ...(opts.PX !== undefined ? { PX: opts.PX } : {}),
+              });
             }
 
-            yield normalizeScanKey(chunk);
-          }
-        },
-      };
+            if (opts?.PX !== undefined) {
+              return client.set(key, value, { PX: opts.PX });
+            }
+
+            return client.set(key, value);
+          })
+          .then(normalizeRedisString),
+      del: key =>
+        ensureClient()
+          .then(client => client.del(key))
+          .then(count => Number(count)),
+      eval: (script, options: RedisEvalOptions) =>
+        ensureClient().then(client => client.eval(script, options)),
+      scanIterator(options: RedisScanOptions): AsyncIterable<string | string[]> {
+        return {
+          async *[Symbol.asyncIterator]() {
+            const client = await ensureClient();
+            for await (const chunk of client.scanIterator(options)) {
+              if (Array.isArray(chunk)) {
+                yield chunk.map(normalizeScanKey);
+                continue;
+              }
+
+              yield normalizeScanKey(chunk);
+            }
+          },
+        };
+      },
+      hGetAll: key => ensureClient().then(client => client.hGetAll(key)),
+      sCard: key =>
+        ensureClient()
+          .then(client => client.sendCommand(["SCARD", key]))
+          .then(count => Number(count)),
+      zRevRangeWithScores: (key, start, stop) =>
+        ensureClient()
+          .then(client => client.zRangeWithScores(key, start, stop, { REV: true }))
+          .then(result => {
+            const flat: string[] = [];
+            for (const item of result) {
+              flat.push(String(item.value));
+              flat.push(String(item.score));
+            }
+            return flat;
+          }),
     },
-    hGetAll: key => ensureClient().then(client => client.hGetAll(key)),
-    sCard: key =>
-      ensureClient()
-        .then(client => client.sendCommand(["SCARD", key]))
-        .then(count => Number(count)),
-    zRevRangeWithScores: (key, start, stop) =>
-      ensureClient()
-        .then(client => client.zRangeWithScores(key, start, stop, { REV: true }))
-        .then(result => {
-          const flat: string[] = [];
-          for (const item of result) {
-            flat.push(String(item.value));
-            flat.push(String(item.score));
-          }
-          return flat;
-        }),
+    disconnect,
   };
 }
 
@@ -362,24 +376,29 @@ async function writeFileJson(path: string, value: unknown): Promise<void> {
 function createBackendStorage(): {
   channelStorage: ChannelStorage;
   leaderboardStorage: LeaderboardStorage;
+  settlementStatsStorage: SettlementStatsStorage;
   storageBackend: "file" | "redis";
+  disconnect?: () => Promise<void>;
 } {
   if (!redisUrl) {
     return {
       channelStorage: new FileChannelStorage({ directory: STORAGE_DIR }),
       leaderboardStorage: new FileLeaderboardStorage(),
+      settlementStatsStorage: createSettlementStatsStorage(undefined),
       storageBackend: "file",
     };
   }
 
-  const redisClient = createLazyRedisStorageClient(redisUrl);
+  const { client, disconnect } = createLazyRedisStorageClient(redisUrl);
   return {
     channelStorage: new RedisChannelStorage({
-      client: redisClient,
+      client,
       keyPrefix: `${REDIS_KEY_PREFIX}:x402`,
     }),
-    leaderboardStorage: new RedisLeaderboardStorage(redisClient),
+    leaderboardStorage: new RedisLeaderboardStorage(client),
+    settlementStatsStorage: createSettlementStatsStorage(client),
     storageBackend: "redis",
+    disconnect,
   };
 }
 
@@ -387,4 +406,9 @@ const selectedStorage = createBackendStorage();
 
 export const channelStorage = selectedStorage.channelStorage;
 export const leaderboardStorage = selectedStorage.leaderboardStorage;
+export const settlementStatsStorage = selectedStorage.settlementStatsStorage;
 export const storageBackend = selectedStorage.storageBackend;
+
+export async function closeStorage(): Promise<void> {
+  await selectedStorage.disconnect?.();
+}

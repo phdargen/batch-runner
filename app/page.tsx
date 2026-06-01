@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { WalletConnect, type BaseAuthSession } from "@/components/WalletConnect";
 import { DepositFlow, type SessionInfo } from "@/components/DepositFlow";
 import { Game } from "@/components/Game";
+import { X402BatchSettlementFooter } from "@/components/X402BatchSettlementFooter";
 import { buildGameChannelConfig } from "@/lib/x402/channel";
 import { NEXT_DEV, RECEIVER_ADDRESS, roundBudgetUnits } from "@/lib/x402/config";
 import { prepareNextRunSession } from "@/lib/x402/runSession";
@@ -181,7 +182,10 @@ function Landing({
 }) {
   return (
     <div className="landing-screen">
-      <img src="/logo.png" alt="Batch Runner" className="landing-logo" width={1536} height={1024} />
+      <div className="landing-brand">
+        <img src="/logo.png" alt="Batch Runner" className="landing-logo" width={1536} height={1024} />
+        <X402BatchSettlementFooter />
+      </div>
       <WalletConnect session={null} onSignIn={onSignIn} onSignOut={onSignOut} />
     </div>
   );

@@ -43,6 +43,7 @@ import {
 } from "@/lib/x402/browserStorage";
 import type { ClientEvmSigner } from "@x402/evm";
 import type { BaseAuthSession } from "./WalletConnect";
+import { X402BatchSettlementFooter } from "./X402BatchSettlementFooter";
 
 const publicClient = createPublicClient({
   chain: baseSepolia,
@@ -524,7 +525,10 @@ export function DepositFlow({ authSession, onSessionReady }: DepositFlowProps) {
 
   return (
     <div className="deposit-flow animate-slide-up">
-      <img src="/logo.png" alt="Batch Runner" className="deposit-logo" width={1536} height={1024} />
+      <div className="deposit-brand">
+        <img src="/logo.png" alt="Batch Runner" className="deposit-logo" width={1536} height={1024} />
+        <X402BatchSettlementFooter />
+      </div>
 
       <div className="deposit-card">
         <div className="deposit-card-fx" aria-hidden />

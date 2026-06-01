@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:claim": "tsx scripts/claim.ts",
+    "dev:settle": "tsx scripts/settle.ts",
     "build": "next build",
     "start": "next start",
     "format": "prettier -c .prettierrc --write \"**/*.{ts,js,cjs,json,md}\"",
@@ -43,6 +45,7 @@
     "eslint-plugin-prettier": "^5.2.6",
     "prettier": "3.5.2",
     "tailwindcss": "^4.3.0",
+    "tsx": "^4.20.3",
     "typescript": "^5.7.3"
   }
 }

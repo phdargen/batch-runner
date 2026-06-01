@@ -8,7 +8,7 @@ export const config = createConfig({
   connectors: [
     baseAccount({
       appName: "Batch Runner",
-      // appLogoUrl: "/logo.png",
+      appLogoUrl: "https://batch-runner.vercel.app/logo.png",
     }),
   ],
   storage: createStorage({ storage: cookieStorage }),
