@@ -14,7 +14,7 @@ import {
   type ViewportLayout,
 } from "@/lib/game/viewport";
 import { JUMP_COST_UNITS, NEXT_DEV, roundBudgetUnits, VOUCHER_CHECKPOINT_JUMPS } from "@/lib/x402/config";
-import { signGameVoucher, verifyGameVoucher } from "@/lib/x402/channel";
+import { signGameVoucher } from "@/lib/x402/channel";
 import type { SessionInfo } from "./DepositFlow";
 import { GameHUD } from "./GameHUD";
 import { GameOver } from "./GameOver";
@@ -30,6 +30,17 @@ type GameProps = {
   onBackToDeposit: () => void;
   autoStart?: boolean;
 };
+
+function waitForVoucherSigningSlot(): Promise<void> {
+  return new Promise(resolve => {
+    if (window.requestIdleCallback) {
+      window.requestIdleCallback(() => resolve(), { timeout: 250 });
+      return;
+    }
+
+    window.setTimeout(resolve, 0);
+  });
+}
 
 export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false }: GameProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -48,8 +59,9 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
   const jumpAttemptInFlightRef = useRef(false);
   const channelIdRef = useRef<`0x${string}` | null>(session.channelId);
   const checkpointInFlightRef = useRef<Promise<void> | null>(null);
-  const jumpPaymentInFlightRef = useRef(false);
   const jumpQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const voucherSigningQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const voucherSigningFailedRef = useRef(false);
   const devFrozenRef = useRef(false);
   const loopRef = useRef<(timestamp: number) => void>(() => {});
   const lastVoucherRef = useRef<{
@@ -81,8 +93,10 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
   const currentJumpCost = useCallback((): bigint => JUMP_COST_UNITS, []);
 
   const flushVoucherCheckpoint = useCallback(
-    (keepalive = false): Promise<void> => {
+    async (keepalive = false): Promise<void> => {
       if (NEXT_DEV) return Promise.resolve();
+
+      await voucherSigningQueueRef.current;
 
       const cid = channelIdRef.current;
       const voucher = lastVoucherRef.current;
@@ -123,48 +137,46 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
     [session.channelConfig],
   );
 
-  const handleJumpCost = useCallback(async (): Promise<boolean> => {
-    if (jumpPaymentInFlightRef.current) return false;
-
+  const handleJumpCost = useCallback((): boolean => {
+    if (voucherSigningFailedRef.current) return false;
     const cost = currentJumpCost();
     if (balanceRef.current < cost) return false;
 
     const cid = channelIdRef.current;
     if (!cid || !session.channelConfig) return false;
 
-    jumpPaymentInFlightRef.current = true;
-    let voucher: {
-      channelId: `0x${string}`;
-      maxClaimableAmount: string;
-      signature: `0x${string}`;
-    };
     const nextCumulative = cumulativeRef.current + cost;
-    try {
-      voucher = await signGameVoucher(session.voucherSigner, cid, nextCumulative);
-      const validVoucher = await verifyGameVoucher(session.sessionAddress, voucher);
-      if (!validVoucher) return false;
-    } catch (err) {
-      console.error("[batch-runner] Voucher signing error:", err);
-      return false;
-    } finally {
-      jumpPaymentInFlightRef.current = false;
-    }
-
     balanceRef.current -= cost;
     cumulativeRef.current = nextCumulative;
     roundSpentRef.current += cost;
     jumpCountRef.current++;
 
-    lastVoucherRef.current = voucher;
-    void session.storage.set(cid, {
-      balance: session.channelBalance.toString(),
-      chargedCumulativeAmount: cumulativeRef.current.toString(),
-      signedMaxClaimable: cumulativeRef.current.toString(),
-      signature: voucher.signature,
-    });
+    const signingTask = voucherSigningQueueRef.current
+      .catch(() => {})
+      // Let the jump state update render before mobile crypto work gets CPU time.
+      .then(waitForVoucherSigningSlot)
+      .then(async () => {
+        const voucher = await signGameVoucher(session.voucherSigner, cid, nextCumulative);
+        lastVoucherRef.current = voucher;
+
+        await session.storage.set(cid, {
+          balance: session.channelBalance.toString(),
+          chargedCumulativeAmount: nextCumulative.toString(),
+          signedMaxClaimable: nextCumulative.toString(),
+          signature: voucher.signature,
+        });
+      })
+      .catch(err => {
+        voucherSigningFailedRef.current = true;
+        console.error("[batch-runner] Voucher signing error:", err);
+      });
+
+    voucherSigningQueueRef.current = signingTask;
 
     if (jumpCountRef.current % VOUCHER_CHECKPOINT_JUMPS === 0) {
-      void flushVoucherCheckpoint();
+      void signingTask.then(() => {
+        if (!voucherSigningFailedRef.current) return flushVoucherCheckpoint();
+      });
     }
 
     return true;
@@ -173,7 +185,6 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
     flushVoucherCheckpoint,
     session.channelBalance,
     session.channelConfig,
-    session.sessionAddress,
     session.storage,
     session.voucherSigner,
   ]);
