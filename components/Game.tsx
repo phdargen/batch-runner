@@ -262,7 +262,7 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) return;
 
     const resizeCanvas = () => {
@@ -286,8 +286,8 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
     portraitQuery.addEventListener("change", syncPortrait);
 
     const STEP = 16;
-    const MAX_ACC = 200;
-    const MAX_STEPS = 5;
+    const MAX_ACC = STEP * 4;
+    const MAX_STEPS = 3;
     let acc = 0;
 
     const loop = (timestamp: number) => {
@@ -318,6 +318,9 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
         }
         acc -= STEP;
         steps++;
+      }
+      if (steps === MAX_STEPS && acc >= STEP) {
+        acc = 0;
       }
 
       if (state.phase !== "game-over") {
@@ -488,7 +491,7 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
 
       <div
         ref={viewportRef}
-        className="relative shrink-0 overflow-hidden"
+        className="game-viewport relative shrink-0 overflow-hidden"
         style={{
           width: viewportLayout.displayWidth,
           height: viewportLayout.displayHeight,

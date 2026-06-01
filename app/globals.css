@@ -123,6 +123,17 @@ body {
   pointer-events: none;
 }
 
+@media (hover: none) and (pointer: coarse) {
+  .game-viewport .hud-panel {
+    backdrop-filter: none;
+    animation: none;
+  }
+
+  .game-viewport .hud-panel::after {
+    display: none;
+  }
+}
+
 .hud-divider {
   width: 1px;
   align-self: stretch;

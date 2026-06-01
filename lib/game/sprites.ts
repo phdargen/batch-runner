@@ -58,6 +58,8 @@ const DINO_WALK_TRIM_Y = [87, 87, 87];
 const DINO_WALK_TRIM_HEIGHT = [495, 494, 494];
 
 const spriteCache = new Map<string, HTMLImageElement>();
+let glowBlockSprite: HTMLCanvasElement | null = null;
+let baseLogoBlockSprite: HTMLCanvasElement | null = null;
 
 function getSprite(src: string): HTMLImageElement | null {
   if (typeof window === "undefined") return null;
@@ -323,22 +325,48 @@ function roundRectPath(
   ctx.closePath();
 }
 
-function drawGlowBlock(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  const size = GLOW_BLOCK_SIZE;
-  const radius = GLOW_BLOCK_CORNER_RADIUS;
-
-  ctx.save();
+function drawGlowShape(
+  ctx: CanvasRenderingContext2D,
+  path: (ctx: CanvasRenderingContext2D) => void,
+) {
   ctx.shadowColor = "#ffffff";
   ctx.shadowBlur = 16;
   ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-  roundRectPath(ctx, x, y, size, size, radius);
+  path(ctx);
   ctx.fill();
 
   ctx.shadowBlur = 6;
   ctx.fillStyle = "#ffffff";
-  roundRectPath(ctx, x, y, size, size, radius);
+  path(ctx);
   ctx.fill();
-  ctx.restore();
+}
+
+function getGlowBlockSprite(): HTMLCanvasElement | null {
+  if (glowBlockSprite) return glowBlockSprite;
+  if (typeof document === "undefined") return null;
+
+  const padding = 20;
+  const size = GLOW_BLOCK_SIZE;
+  const radius = GLOW_BLOCK_CORNER_RADIUS;
+  const sprite = document.createElement("canvas");
+  sprite.width = size + padding * 2;
+  sprite.height = size + padding * 2;
+
+  const spriteCtx = sprite.getContext("2d");
+  if (!spriteCtx) return null;
+
+  drawGlowShape(spriteCtx, pathCtx => {
+    roundRectPath(pathCtx, padding, padding, size, size, radius);
+  });
+  glowBlockSprite = sprite;
+  return sprite;
+}
+
+function drawGlowBlock(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  const sprite = getGlowBlockSprite();
+  if (!sprite) return;
+
+  ctx.drawImage(sprite, x - 20, y - 20);
 }
 
 /** Base logo lead tile: square body plus top-left stem (lowercase "b" silhouette). */
@@ -371,21 +399,32 @@ function baseLogoBlockPath(
 }
 
 function drawBaseLogoLeadBlock(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  const sprite = getBaseLogoBlockSprite();
+  if (!sprite) return;
+
+  ctx.drawImage(sprite, x - 20, y - 20 - GLOW_BLOCK_SIZE * 0.45);
+}
+
+function getBaseLogoBlockSprite(): HTMLCanvasElement | null {
+  if (baseLogoBlockSprite) return baseLogoBlockSprite;
+  if (typeof document === "undefined") return null;
+
+  const padding = 20;
+  const stemOffset = GLOW_BLOCK_SIZE * 0.45;
   const size = GLOW_BLOCK_SIZE;
   const radius = GLOW_BLOCK_CORNER_RADIUS;
+  const sprite = document.createElement("canvas");
+  sprite.width = size + padding * 2;
+  sprite.height = size + stemOffset + padding * 2;
 
-  ctx.save();
-  ctx.shadowColor = "#ffffff";
-  ctx.shadowBlur = 16;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-  baseLogoBlockPath(ctx, x, y, size, radius);
-  ctx.fill();
+  const spriteCtx = sprite.getContext("2d");
+  if (!spriteCtx) return null;
 
-  ctx.shadowBlur = 6;
-  ctx.fillStyle = "#ffffff";
-  baseLogoBlockPath(ctx, x, y, size, radius);
-  ctx.fill();
-  ctx.restore();
+  drawGlowShape(spriteCtx, pathCtx => {
+    baseLogoBlockPath(pathCtx, padding, padding + stemOffset, size, radius);
+  });
+  baseLogoBlockSprite = sprite;
+  return sprite;
 }
 
 function drawGlowBlockRow(
