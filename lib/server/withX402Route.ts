@@ -50,7 +50,7 @@ function handlePaymentError(response: HTTPResponseInstructions): NextResponse {
 function prepareHttpServer(
   httpServer: x402HTTPResourceServer,
   paywall?: PaywallProvider,
-  syncFacilitatorOnStart = true,
+  syncFacilitatorOnStart = false,
 ) {
   if (paywall) {
     httpServer.registerPaywallProvider(paywall);
@@ -62,7 +62,7 @@ function prepareHttpServer(
   return {
     httpServer,
     async init() {
-      if (!syncFacilitatorOnStart || isInitialized) {
+      if (isInitialized) {
         return;
       }
       if (!initPromise) {
@@ -90,7 +90,7 @@ export function withX402Route<T = unknown>(
   server: x402ResourceServer,
   paywallConfig?: PaywallConfig,
   paywall?: PaywallProvider,
-  syncFacilitatorOnStart = true,
+  syncFacilitatorOnStart = false,
 ): (request: NextRequest) => Promise<NextResponse<T>> {
   const routes = { [routePattern]: routeConfig };
   validateBazaarRouteExtensions(routes);
