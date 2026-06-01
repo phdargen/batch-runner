@@ -9,6 +9,9 @@ import {
 } from "@x402/core/server";
 import type { PaymentPayload, PaymentRequirements } from "@x402/core/types";
 
+import { getDepositAmountFromPayment } from "./flowStats";
+import { flowStatsStorage } from "./storage";
+
 function responseHeadersFromNextResponse(response: NextResponse): Record<string, string> {
   const headers: Record<string, string> = {};
   response.headers.forEach((value, key) => {
@@ -72,6 +75,13 @@ export async function handleSettlement(
       response.headers.set(key, value);
     });
     response.headers.delete(SETTLEMENT_OVERRIDES_HEADER);
+
+    if (httpContext?.path === "/api/game/start") {
+      const depositAmount = getDepositAmountFromPayment(paymentPayload);
+      if (depositAmount !== null) {
+        await flowStatsStorage.recordDeposit(depositAmount);
+      }
+    }
 
     return response;
   } catch (error) {

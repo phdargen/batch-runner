@@ -19,6 +19,7 @@ import {
   sortLeaderboard,
   type LeaderboardEntry as SharedLeaderboardEntry,
 } from "../leaderboard";
+import { createFlowStatsStorage, type FlowStatsStorage } from "./flowStats";
 import { createSettlementStatsStorage, type SettlementStatsStorage } from "./settlementStats";
 
 const LEADERBOARD_KEY = "batch-runner:leaderboard";
@@ -377,6 +378,7 @@ function createBackendStorage(): {
   channelStorage: ChannelStorage;
   leaderboardStorage: LeaderboardStorage;
   settlementStatsStorage: SettlementStatsStorage;
+  flowStatsStorage: FlowStatsStorage;
   storageBackend: "file" | "redis";
   disconnect?: () => Promise<void>;
 } {
@@ -385,6 +387,7 @@ function createBackendStorage(): {
       channelStorage: new FileChannelStorage({ directory: STORAGE_DIR }),
       leaderboardStorage: new FileLeaderboardStorage(),
       settlementStatsStorage: createSettlementStatsStorage(undefined),
+      flowStatsStorage: createFlowStatsStorage(undefined),
       storageBackend: "file",
     };
   }
@@ -397,6 +400,7 @@ function createBackendStorage(): {
     }),
     leaderboardStorage: new RedisLeaderboardStorage(client),
     settlementStatsStorage: createSettlementStatsStorage(client),
+    flowStatsStorage: createFlowStatsStorage(client),
     storageBackend: "redis",
     disconnect,
   };
@@ -407,6 +411,7 @@ const selectedStorage = createBackendStorage();
 export const channelStorage = selectedStorage.channelStorage;
 export const leaderboardStorage = selectedStorage.leaderboardStorage;
 export const settlementStatsStorage = selectedStorage.settlementStatsStorage;
+export const flowStatsStorage = selectedStorage.flowStatsStorage;
 export const storageBackend = selectedStorage.storageBackend;
 
 export async function closeStorage(): Promise<void> {

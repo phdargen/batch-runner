@@ -1,7 +1,8 @@
 import type { Channel } from "@x402/evm/batch-settlement/server";
 
 import { USDC_DECIMALS } from "../x402/config";
-import { channelStorage, leaderboardStorage, settlementStatsStorage, storageBackend } from "./storage";
+import { channelStorage, flowStatsStorage, leaderboardStorage, settlementStatsStorage, storageBackend } from "./storage";
+import { formatFlowUsd } from "./flowStats";
 import { formatSettledUsd } from "./settlementStats";
 
 export type AdminStats = {
@@ -23,6 +24,14 @@ export type AdminStats = {
     totalSettledAmount: string;
     totalSettledUsd: string;
   };
+  flow: {
+    totalDepositTransactions: number;
+    totalDepositedAmount: string;
+    totalDepositedUsd: string;
+    totalRefundRequests: number;
+    totalRefundedAmount: string;
+    totalRefundedUsd: string;
+  };
 };
 
 function getChannelClaimableAmount(channel: Channel): bigint {
@@ -37,10 +46,11 @@ function formatUsdc(units: bigint): string {
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
-  const [leaderboard, channels, settlement] = await Promise.all([
+  const [leaderboard, channels, settlement, flow] = await Promise.all([
     leaderboardStorage.get(1),
     channelStorage.list(),
     settlementStatsStorage.get(),
+    flowStatsStorage.get(),
   ]);
 
   let channelsWithClaimable = 0;
@@ -67,6 +77,14 @@ export async function getAdminStats(): Promise<AdminStats> {
       totalSettleTransactions: settlement.totalSettleTransactions,
       totalSettledAmount: settlement.totalSettledAmount,
       totalSettledUsd: formatSettledUsd(BigInt(settlement.totalSettledAmount)),
+    },
+    flow: {
+      totalDepositTransactions: flow.totalDepositTransactions,
+      totalDepositedAmount: flow.totalDepositedAmount,
+      totalDepositedUsd: formatFlowUsd(BigInt(flow.totalDepositedAmount)),
+      totalRefundRequests: flow.totalRefundRequests,
+      totalRefundedAmount: flow.totalRefundedAmount,
+      totalRefundedUsd: formatFlowUsd(BigInt(flow.totalRefundedAmount)),
     },
   };
 }

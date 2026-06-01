@@ -25,6 +25,14 @@ type AdminStats = {
     totalSettledAmount: string;
     totalSettledUsd: string;
   };
+  flow: {
+    totalDepositTransactions: number;
+    totalDepositedAmount: string;
+    totalDepositedUsd: string;
+    totalRefundRequests: number;
+    totalRefundedAmount: string;
+    totalRefundedUsd: string;
+  };
 };
 
 type AdminStatsResponse = {
@@ -158,6 +166,22 @@ export function AdminPageClient({ adminWallet }: AdminPageClientProps) {
                   value={stats.settlement.totalSettleTransactions.toLocaleString()}
                 />
                 <Stat label="Total settled" value={stats.settlement.totalSettledUsd} />
+              </dl>
+            </section>
+
+            <section className="admin-stats-section">
+              <h2 className="admin-stats-heading">Deposits & refunds ({stats.storageBackend})</h2>
+              <dl className="admin-stats-grid">
+                <Stat
+                  label="Deposit transactions"
+                  value={stats.flow.totalDepositTransactions.toLocaleString()}
+                />
+                <Stat label="Total deposited" value={stats.flow.totalDepositedUsd} />
+                <Stat
+                  label="Refund requests"
+                  value={stats.flow.totalRefundRequests.toLocaleString()}
+                />
+                <Stat label="Total refunded" value={stats.flow.totalRefundedUsd} />
               </dl>
             </section>
           </div>

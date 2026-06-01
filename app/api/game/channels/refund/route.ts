@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAddress } from "viem";
+import { flowStatsStorage } from "@/lib/server/storage";
 import { channelManager, storage } from "@/lib/server/x402";
 
 export const runtime = "nodejs";
@@ -33,7 +34,8 @@ export async function POST(req: Request) {
 
   const balance = BigInt(channel.balance ?? "0");
   const charged = BigInt(channel.chargedCumulativeAmount ?? "0");
-  if (balance <= charged) {
+  const refundableAmount = balance - charged;
+  if (refundableAmount <= 0n) {
     return NextResponse.json({ error: "Channel has no remaining balance" }, { status: 400 });
   }
 
@@ -42,6 +44,8 @@ export async function POST(req: Request) {
     if (results.length === 0) {
       return NextResponse.json({ error: "Refund failed" }, { status: 502 });
     }
+
+    await flowStatsStorage.recordRefund(refundableAmount);
 
     return NextResponse.json({
       ok: true,
