@@ -93,7 +93,7 @@ export default function Home() {
   return (
     <main
       className={`min-h-dvh flex flex-col items-center px-4 ${
-        hasCityBackground ? "relative overflow-x-hidden" : "justify-center py-8"
+        hasCityBackground ? "relative deposit-page-main" : "justify-center py-8"
       }`}
     >
       {hasCityBackground && (
