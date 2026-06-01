@@ -33,6 +33,7 @@ export function createInitialState(): GameState {
     distance: 0,
     speed: BASE_SPEED,
     dinoY: 0,
+    prevDinoY: 0,
     dinoVelocity: 0,
     isJumping: false,
     obstacles: [],
@@ -116,6 +117,8 @@ export async function tryJump(state: GameState, callbacks: EngineCallbacks): Pro
 }
 
 export function tick(state: GameState, dt: number, callbacks: EngineCallbacks): GameState {
+  state.prevDinoY = state.dinoY;
+
   if (state.phase === "idle" || state.phase === "game-over") {
     updateClouds(state, callbacks.canvasWidth);
     advanceRunFrame(state, dt);

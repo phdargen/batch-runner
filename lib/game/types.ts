@@ -47,6 +47,8 @@ export type GameState = {
   distance: number;
   speed: number;
   dinoY: number;
+  /** dinoY at the start of the most recent tick, for render interpolation. */
+  prevDinoY: number;
   dinoVelocity: number;
   isJumping: boolean;
   obstacles: Obstacle[];

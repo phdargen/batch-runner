@@ -96,9 +96,12 @@ export function render(ctx: CanvasRenderingContext2D, state: GameState, alpha = 
     drawPlatformSet(ctx, platform.x - scrollShift, groundY, platform.elev, platform.tileCount);
   }
 
-  // Dino
+  // Dino: interpolate between the previous and current simulated positions.
+  // Extrapolating instead would overshoot the ground/platform on the landing
+  // tick (when dinoY is hard-clamped) and cause a visible snap.
   const dinoX = 80;
-  const dinoScreenY = groundY - DINO_HEIGHT + state.dinoY + alpha * state.dinoVelocity;
+  const dinoY = state.prevDinoY + alpha * (state.dinoY - state.prevDinoY);
+  const dinoScreenY = groundY - DINO_HEIGHT + dinoY;
   drawDino(
     ctx,
     dinoX,
