@@ -361,6 +361,22 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
 
   // Input handling
   useEffect(() => {
+    const queueJumpInput = () => {
+      gameAudio.unlock();
+      if (!startedRef.current) {
+        startedRef.current = true;
+        setStarted(true);
+      }
+      if (stateRef.current.phase === "game-over") return;
+      if (jumpHeldRef.current) return;
+      jumpBufferMsRef.current = JUMP_BUFFER_MS;
+      jumpHeldRef.current = true;
+    };
+
+    const releaseJumpInput = () => {
+      jumpHeldRef.current = false;
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (NEXT_DEV && e.code === "KeyP") {
         if (e.repeat) return;
@@ -371,35 +387,21 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
       if (e.code !== "Space" && e.code !== "ArrowUp") return;
       e.preventDefault();
       if (e.repeat) return;
-      gameAudio.unlock();
-      if (!startedRef.current) {
-        startedRef.current = true;
-        setStarted(true);
-      }
-      jumpBufferMsRef.current = JUMP_BUFFER_MS;
-      jumpHeldRef.current = true;
+      queueJumpInput();
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === "Space" || e.code === "ArrowUp") {
-        jumpHeldRef.current = false;
+        releaseJumpInput();
       }
     };
 
-    const handleTouchStart = (e: TouchEvent) => {
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      if (stateRef.current.phase === "game-over") return;
+      if ((e.target as Element).closest(".game-over-shell")) return;
       e.preventDefault();
-      gameAudio.unlock();
-      if (jumpHeldRef.current) return;
-      if (!startedRef.current) {
-        startedRef.current = true;
-        setStarted(true);
-      }
-      jumpBufferMsRef.current = JUMP_BUFFER_MS;
-      jumpHeldRef.current = true;
-    };
-
-    const handleTouchEnd = () => {
-      jumpHeldRef.current = false;
+      queueJumpInput();
     };
 
     const handlePageHide = () => {
@@ -408,19 +410,22 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("pointerup", releaseJumpInput);
+    window.addEventListener("pointercancel", releaseJumpInput);
     window.addEventListener("pagehide", handlePageHide);
-    const canvas = canvasRef.current;
-    canvas?.addEventListener("touchstart", handleTouchStart, { passive: false });
-    canvas?.addEventListener("touchend", handleTouchEnd);
+
+    const viewport = viewportRef.current;
+    viewport?.addEventListener("pointerdown", handlePointerDown, { passive: false });
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("pointerup", releaseJumpInput);
+      window.removeEventListener("pointercancel", releaseJumpInput);
       window.removeEventListener("pagehide", handlePageHide);
-      canvas?.removeEventListener("touchstart", handleTouchStart);
-      canvas?.removeEventListener("touchend", handleTouchEnd);
+      viewport?.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [flushVoucherCheckpoint, started, toggleDevFreeze]);
+  }, [flushVoucherCheckpoint, toggleDevFreeze]);
 
   const handleSubmitScore = useCallback(async () => {
     const state = stateRef.current;
@@ -476,6 +481,7 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
         style={{
           width: viewportLayout.displayWidth,
           height: viewportLayout.displayHeight,
+          touchAction: "none",
         }}
       >
         <GameHUD
@@ -489,7 +495,7 @@ export function Game({ session, onPlayAgain, onBackToDeposit, autoStart = false 
         {!started && !gameOver && !portraitBlocked && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] z-10">
             <div className="text-center animate-slide-up">
-              <p className="text-lg font-bold text-white mb-2">Press SPACE or tap to start</p>
+              <p className="text-lg font-bold text-white mb-2">Press SPACE, click, or tap to start</p>
               <p className="text-xs text-[var(--color-text-secondary)]">
                 Each jump costs $0.001. Jump over gaps to stay on the chain.
               </p>
